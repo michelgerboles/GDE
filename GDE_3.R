@@ -10,10 +10,6 @@ get_current_file_path <- function(){
   return(dirname(this_file))}
 WD <- get_current_file_path()
 
-# for function get.DQO(), source Functions4ASE.R assuming that it is in the parent directory
-source(file.path(dirname(WD),"Functions4ASE.R"))
-source(file.path(dirname(WD),"151016 Sensor_Toolbox.R"))
-
 ## app.R ##
 librarian::shelf(shiny)
 librarian::shelf(shinydashboard)
@@ -58,8 +54,25 @@ colour_vector <- c("red", "blue", "black", "green", "cornflowerblue", "chocolate
                    "cornflowerblue", "chocolate4", "darkblue", "darkgoldenrod3", "darkorange", "darkolivegreen4",
                    "goldenrod4", "darkred")
 
-# For computation
+# Sourcing necessary functions for computation
 source("Functions4GDE.R")
+# Download the file
+# for function get.DQO(), source Functions4ASE.R assuming that it is in the parent directory
+# Specify the URL of the file to download
+url_Functions4ASE  <- "https://raw.githubusercontent.com/ec-jrc/airsenseur-calibration/refs/heads/master/Functions4ASE.R"
+WD_Functions4ASE   <- file.path(WD, "Functions4ASE.R")
+download.file(url_Functions4ASE, destfile = WD_Functions4ASE, method = "auto")
+url_Sensor_ToolBox <- "https://raw.githubusercontent.com/ec-jrc/airsenseur-calibration/refs/heads/master/151016%20Sensor_Toolbox.R"
+WD_Sensor_ToolBox  <- file.path(WD, "151016 Sensor_Toolbox.R")
+download.file(url_Sensor_ToolBox, destfile = WD_Sensor_ToolBox, method = "auto")
+source(file.path(WD,"Functions4ASE.R"))
+source(file.path(WD,"151016 Sensor_Toolbox.R"))
+
+# Local files
+#source(file.path(dirname(WD),"Functions4ASE.R"))
+#source(file.path(dirname(WD),"151016 Sensor_Toolbox.R"))
+
+
 # For the App
 source("sidebar.R")
 source("body.R")
@@ -74,7 +87,7 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
   
-  # for changing menuItem of sidebarmenu()
+  # for changing visibility of menuItem of sidebarmenu()
   shinyjs::useShinyjs()
   
   # Observe button click to shut down the server
@@ -93,7 +106,7 @@ server <- function(input, output, session) {
            ", Analyser: ", ifelse(!is.null(input$Instrument), input$Instrument, " "))
   })
   
-  # initialise reactive values, place holder for all data
+  # initialise Data reactive values, place holder for all data
   Data <- reactiveValues()
   
   # Determine DQO
@@ -882,7 +895,7 @@ server <- function(input, output, session) {
       CM_Stats <- U_orth_DF(Mat = DT, Regression = "OLS", Tested.Models = Tested.Models,
                             variable.ubsRM = FALSE, ubsRM = ubs()$ubsRM, perc.ubsRM = 0.02,
                             variable.ubss  = FALSE, ubss  = ubs()$ubsCM, perc.ubss  = NULL, Add.ubss = FALSE,
-                            Fitted.RS = input$Fitted.RS == "TRUE", Forced.Fitted.RS = FALSE, ID = NULL,
+                            Fitted.RS = input$Fitted.RS, Forced.Fitted.RS = FALSE, ID = NULL,
                             Verbose = TRUE)
       
       # Adding CM corrected values to Data.DT, computing differences between corrected CM and differences to RM for each CM corrected
