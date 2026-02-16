@@ -72,6 +72,8 @@ source(file.path(WD,"151016 Sensor_Toolbox.R"))
 #source(file.path(dirname(WD),"Functions4ASE.R"))
 #source(file.path(dirname(WD),"151016 Sensor_Toolbox.R"))
 
+# Sourcing necessary functions for computation
+source("Functions4GDE.R")
 
 # For the App
 source("sidebar.R")
@@ -895,7 +897,7 @@ server <- function(input, output, session) {
       CM_Stats <- U_orth_DF(Mat = DT, Regression = "OLS", Tested.Models = Tested.Models,
                             variable.ubsRM = FALSE, ubsRM = ubs()$ubsRM, perc.ubsRM = 0.02,
                             variable.ubss  = FALSE, ubss  = ubs()$ubsCM, perc.ubss  = NULL, Add.ubss = FALSE,
-                            Fitted.RS = input$Fitted.RS, Forced.Fitted.RS = FALSE, ID = NULL,
+                            Fitted.RS = as.logical(input$Fitted.RS), Forced.Fitted.RS = FALSE, ID = NULL,
                             Verbose = TRUE)
       
       # Adding CM corrected values to Data.DT, computing differences between corrected CM and differences to RM for each CM corrected
@@ -1010,4 +1012,5 @@ server <- function(input, output, session) {
 
 # run App
 options(browser = "C:\\Program Files (x86)\\Google\\Chrome\\Application/chrome.exe")
+
 shinyApp(ui, server, options = list(launch.browser = TRUE))
