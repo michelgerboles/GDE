@@ -1,3 +1,16 @@
-/.Rhistory
-notebooks
-.Rproj.user/
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+GDE_Results_CM.LinTest.csv
+GDE_Results_CM.csv
+GDE_Results_CM_original.csv
+GDE_Results_NormTest.csv
+GDE_Results_RM.csv
+GDE_Results_Sites.csv
+GDE_Results_regression_coefs.csv
+GDE_data_corrected.csv
+analyze_instrument_data.R
+"filename_or_pattern" 
+Functions4ASE.R 
+151016 Sensor_Toolbox.R 
