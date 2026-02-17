@@ -71,6 +71,8 @@ body <- dashboardBody(
                                                          
                                                          shiny::tabPanel(title = "Differences", icon = icon("chart-line", lib = "font-awesome"),
                                                                   shinycssloaders::withSpinner(plotOutput("CM_Raw", height = "850"), type = 8)),
+                                                         shiny::tabPanel(title = "Diagnostics", icon = icon("chart-line", lib = "font-awesome"),
+                                                                         shinycssloaders::withSpinner(plotOutput("OLS.Models", height = "850"), type = 8)),
                                                          shiny::tabPanel(title = "Uncertainty", icon = icon("chart-line", lib = "font-awesome"),
                                                                          shinycssloaders::withSpinner(plotOutput("U.CM_Raw", height = "850"), type = 8))
                                                        )

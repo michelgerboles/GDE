@@ -115,7 +115,7 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
   ############################################# Manage Alert #################################################C
   # Checking availability of complete data
   # df has been already checked for non NA row. Inutile, remove
-  #df <- df[is.finite(rowSums(df[,.SD,.SDcols = Columns]))]
+  df <- df[is.finite(rowSums(df[,.SD,.SDcols = Columns]))]
   stopifnot(nrow(df) > min.N)
   ############################################################################################################C
   
@@ -1030,10 +1030,10 @@ linearity_check <- function(df,
 #' ubss = NULL, variable.ubss = TRUE, perc.ubss = Reg.lin[[paste0(Fraction,".Slope")]][Reg.lin$DataSet == DataSet], Add.ubss = FALSE,
 #' Fitted.RS = FALSE, Forced.Fitted.RS = FALSE, Verbose = TRUE)
 
-#' @return a list with parameters: "mo","sdo", "mm","sdm", "b1", "ub1", "b0", "ub0", "RSS","rmse", "mbe", "Correlation", "nb", "CRMSE", "NMSD", "RS.Fitted", "Regression", "Add.ubss", m2 (the linear calibration model), ft (a flextable with comparison of the possible Regression types) and a data.table called "Mat" with columns: "case", "Date", "xis", "yis","ubsRM", "RS", "Ur", "U", "Rel.bias", "Rel.RSS"
+#' @return a list with parameters: "mo","sdo", "mm","sdm", "b1", "ub1", "b0", "ub0", "RSS","rmse", "mbe", "Correlation", "nb", "RS.Fitted", "Regression", "Add.ubss", m2 (the linear calibration model), ft (a flextable with comparison of the possible Regression types) and a data.table called "Mat" with columns: "case", "Date", "xis", "yis","ubsRM", "RS", "Ur", "U", "Rel.bias", "Rel.RSS"
 #' returning a list with slope (b and ub), intercept (a and ua), the sum of square of residuals (RSS),
 #' the root means square of error (RMSE), the mean bias error (mbe), the coefficient of correlation (Correlation),
-#' the number of valid measurements (nb), the centered root mean square of error (CRMSE), the normalised mean standard deviation (NMSD) and Mat with (relative) expanded measurement uncertainty.
+#' the number of valid measurements (nb) and Mat with (relative) expanded measurement uncertainty.
 #' The list also include the parameters of computation: "RS.Fitted", "Regression" and "Add.ubss".
 #' Negative Rel.RSS are set to 0.
 
@@ -1098,10 +1098,11 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     } else if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] using u(bs,s) provided in Mat."))
     
     # Fitting Linear Models ###
+    browser()
     # Ordinary least square Linear Regression, OLS with outliers being discarded ###
     Formula <- as.formula(paste0("yis ~ ", Versus))
     OLS <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    # Looking for and discarding influential points
+    # Looking for and discarding influential points for OLS and any other model
     OLS.Outliers <- performance::check_outliers(OLS)
     if(length(which(OLS.Outliers)) > 0){
       Mat <- Mat[-which(OLS.Outliers)]
@@ -1113,23 +1114,37 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     } else if(Verbose) futile.logger::flog.info(paste0("[U_orth_DF] no data Mat: discarded as influential using Cook's distance of OLS."))
     
     # checking assumptions of linear models
+    OLS.Heteroskedasticity <- performance::check_heteroskedasticity(OLS)
+    OLS.Models             <- performance::check_model(OLS)
+    OLS.Autocorrelation    <- performance::check_autocorrelation(OLS)
+    OLS.Diagnostic         <- rempsyc::nice_table(rempsyc::nice_assumptions(OLS), col.format.p = 2:4)
+    # Printing message if requested
     if(Verbose){
       cat("Checking heteroskedascity, homogenity of variance of residuals for OLS model\n")
-      print(performance::check_heteroskedasticity(OLS))
+      print(OLS.Heteroskedasticity)
       
       cat("Checking autocorrelation of residuals for OLS model\n")
-      print(performance::check_autocorrelation(OLS)) # check_autocorrelation not existing for Weighted regression line
+      print(OLS.Autocorrelation) # check_autocorrelation not existing for Weighted regression line
       
-      cat(paste0("Plotting heteroskedascity, homogenity of variance of residuals for ", Regression, " model"))
-      plot(performance::check_model(OLS))
-      OLS.Diagnostic <- nice_table(nice_assumptions(OLS), col.format.p = 2:4)
-      OLS.Diagnostic}
+      cat(paste0("Plotting check of linearity for ", Regression, " model\n"))
+      plot(OLS.Models)
+      
+      cat(paste0("Plotting table with test results of heteroskedascity, homogenity of variance and autocorrelation of residuals for ", Regression, " model\n"))
+      OLS.Diagnostic
+    }
+    
+    # Setting Models to fit
+    if(is.null(Tested.Models)) Tested.Models <- c("OLS", "OLS.Weighing", "Quantile", "WLS_OLS", "WLS_ubss", "Deming", "TLS")
     
     # Ordinary Least square with  weighing according to scattering in 10 lags over the xis range
-    OLS.Weighing <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = TRUE, Auto.Lag = TRUE,  Plot_Line = Plot_Line, Verbose = Verbose)
+    if("OLS.Weighing" %in% Tested.Models){
+      OLS.Weighing <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = TRUE, Auto.Lag = TRUE,  Plot_Line = Plot_Line, Verbose = Verbose)
+    }
     
     # Quantile regression at the median, no weighing per lags
-    Quantile <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear.Robust", Probs = 0.5, Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose, f_coef1 = "%.1f", f_coef2 = "%.2f")
+    if("OLS.Weighing" %in% Tested.Models){
+      Quantile <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear.Robust", Probs = 0.5, Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose, f_coef1 = "%.1f", f_coef2 = "%.2f")
+    }
     
     # Common parameters for Delta tools and TLS
     nb  <- nrow(Mat)
@@ -1147,16 +1162,37 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     
     # Fitting Deming regression, it takes care of constant or variable Errors on x and y
     if("Deming" %in% Tested.Models){
+      
+      browser()
+      
       if (!variable.ubsRM && !variable.ubss) {
         
         Delta <- (ubss/ubsRM)^2
         if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with constant u(bs,RM) and u(bs,s).")
-        Deming  <- MethComp::Deming(x = Mat[[Versus]], y = Mat[["yis"]], vr = Delta, boot = TRUE, keep.boot = FALSE)
-        if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with constant u(bs,RM) and u(bs,s).")
+        # if boot = TRUE and keep.boot = FALSE, MethComp::Deming returns a matrix with coefficients, se and confidence interval
+        Deming.MethComp     <- MethComp::Deming(x = Mat[[Versus]], y = Mat[["yis"]], vr = Delta, boot = TRUE, keep.boot = FALSE)
+        # if boot = TRUE and keep.boot = TRUE, MethComp::Deming returns a matrix with Coefficients each row being a subsample of x and y. Ideal to compute covariance between slope and intercept
+        Deming.MethComp.COV <- MethComp::Deming(x = Mat[[Versus]], y = Mat[["yis"]], vr = Delta, boot = TRUE, keep.boot = TRUE)
+        Deming <- list(
+          coefficients =  Deming.MethComp[1:2, "Estimate"],
+          x = Mat[[Versus]],
+          y =  Mat[["yis"]],
+          fitted.values = Deming.MethComp[1, "Estimate"] + Deming.MethComp[2, "Estimate"] * Mat[[Versus]],
+          residuals = Mat[["yis"]] - Deming.MethComp[1, "Estimate"] + Deming.MethComp[2, "Estimate"] * Mat[[Versus]],
+          rank = 2, 
+          df.residuals = nrow(Mat) - 1 - 1,
+          terms = terms(lm(yis~xis, data=Mat)),
+          call = "MethComp::Deming(x = Mat[[Versus]], y = Mat[[\"yis\"]], vr = Delta, boot = TRUE, keep.boot = TRUE/FALSE)",
+          Deming.MethComp = Deming.MethComp,
+          Deming.MethComp.COV  = Deming.MethComp.COV
+        )
+        
       } else {
+        
         if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with variable u(bs,RM) and/or u(bs,s).")
+        Deming <- Cal_Line(x = Mat$xis, s_x = Mat$ubsRM, y = Mat$yis, s_y = Mat$ubss, Mod_type = "Deming", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
+        
       }
-      Deming <- Cal_Line(x = Mat$xis, s_x = Mat$ubsRM, y = Mat$yis, s_y = Mat$ubss, Mod_type = "Deming", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
     }
     
     # Fitting WLS regression, y weights are determined from the residuals using the residuals of the OLS model
@@ -1169,12 +1205,11 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     }
     
     # weights with ubss
-    if("WLS_OLS" %in% Tested.Models){
+    if("WLS_ubss" %in% Tested.Models){
       WLS_ubss <- Cal_Line(x = Mat$xis, y = Mat$yis, s_y = Mat$ubss, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
     }
     
     # Creating a table with the different models
-    if(is.null(Tested.Models)) Tested.Models <- c("OLS", "OLS.Weighing", "Quantile", "WLS_OLS", "WLS_ubss", "Deming", "TLS")
     Tested.Models <- Tested.Models[Tested.Models %in% ls()]
     if(length(Tested.Models) > 0){
       for(Model in Tested.Models){
@@ -1195,12 +1230,14 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
           ub1 <- round(Summary$coefficients[,2][2], 3)
           R2 = round(R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5),3)
           browser()
-          covb0b1 <- Summary$cov[1, 2] # chatGPT asked
+          covb0b1 <- round(Summary$cov[1, 2], 4 ) # chatGPT asked
         } else if (Model == "Deming"){
+          browser()
           if (!variable.ubsRM && !variable.ubss) {
             b0  <- round(Deming$coefficients[1], 2)
             ub0 <- round(sqrt(diag(Deming$variance)[1]), 2)
             b1  <- round(Deming$coefficients[2], 3)
+            browser()
             ub1 <- round(sqrt(Deming$variance[2,2]), 3)
             covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 3)
           } else {
@@ -1216,7 +1253,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
           b1  <- round(coef(TLS)[2], 3)
           ub1 <- round(TLS$fit.MethComp[2,2], 3)
           # ub0 and ub1 are computed by 1000 bootstrap (as in deming::Deming) while in the GDE, equations are given (see below). The values ub0  and ub1 are different when computed by the two methods
-          covb0b1 <- cov(TLS$fit.MethComp.COV)[1,2]
+          covb0b1 <- round(cov(TLS$fit.MethComp.COV)[1,2],4)
           
           # as in annex b of Guide for The Demonstration of Equivalence
           # Syy <- sum((Mat[["yis"]] - mm)^2)
@@ -1245,6 +1282,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     }
     
     # Selecting regression type for computing U and Ur
+    browser()
     m2 = get(Regression)
     b0  <- Lin.Reg[Model == Regression]$b0
     ub0 <- Lin.Reg[Model == Regression]$ub0
@@ -1307,8 +1345,6 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     rmse  <- sqrt(sum(Mat[["residuals"]]^2) / (nb - 2 - 1)) # the degrees of freedom are n - k (number of coeffieint of the regression line: 2) - 1
     mbe   <- mean(Mat[["yis"]] - Mat[[Versus]])
     mae   <- mean(abs(Mat[["yis"]] - Mat[[Versus]]))
-    CRMSE <- sqrt(mean(((Mat[["yis"]] - mm) - (Mat[[Versus]] - mo))^2))
-    NMSD  <- (sd(Mat[["yis"]]) - sd(Mat[[Versus]])) / sd(Mat[[Versus]])
     Correlation <- cor(Mat[[Versus]],Mat[["yis"]])
     
     # testing for heterosKedasticity with Breusch Pagan test, the two packages gives the same p.value
@@ -1324,6 +1360,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
       futile.logger::flog.info(paste0("[U_orth_DF] Argument \"Fitted.RS\" in U_orth_DF(): ", Fitted.RS, ". If FALSE the square residuals are not fitted and constant RSS is computed."))
       futile.logger::flog.info(paste0("[U_orth_DF] Argument \"Forced.Fitted.RS\" in U_orth_DF(): ", Forced.Fitted.RS,
                                       ". If TRUE the square residuals are fitted, even if the variance of residuals along x axis is constant."))} 
+    
     if (Fitted.RS && (Breusch.Pagan$p.value < 0.05 || Forced.Fitted.RS)) {
       if (Verbose) futile.logger::flog.info("[U_orth_DF] The variance of residuals is not constant or is set to be fitted. RSi are calculated after applying a General Additive Model fitting.")
       # Fitting with gam Vs Versus ("Xi")
@@ -1415,8 +1452,6 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
         cat(sprintf("RSS: %.4g ",Mat$RSS[1]), "\n")}
       cat(sprintf("RMSE : %.4g ",rmse), "\n")
       cat(sprintf("mbe  : %.4g ",mbe), "\n")
-      cat(sprintf("CRMSE: %.4g ",CRMSE), "\n")
-      cat(sprintf("NMSD : %.4g ",NMSD), "\n")
       cat(sprintf("n    : %.4g ",nb), "\n")
       
       # Printing the different regression models
@@ -1424,15 +1459,15 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
       ft
     }
     calib <- list(mo = mo, sdo = sdo, mm = mm, sdm = sdm, b1 = b1, ub1 = ub1, b0 = b0, ub0 = ub0, RSS = RSS, rmse = rmse,
-                  mb2 = mbe, Correlation = Correlation, nb = nb, CRMSE = CRMSE, NMSD, Mat = Mat, Fitted.RS = Fitted.RS, Regression = Regression, Add.ubss = Add.ubss, m2 = m2,
-                  Lin.Reg = Lin.Reg)
+                  mb2 = mbe, Correlation = Correlation, nb = nb, Mat = Mat, Fitted.RS = Fitted.RS, Regression = Regression, Add.ubss = Add.ubss, m2 = m2,
+                  OLS.Models = OLS.Models, Lin.Reg = Lin.Reg)
     if(Verbose){ # elements created only if Verbose = TRUE
       for(Element in c("OLS", "OLS.Outliers", "OLS.Diagnostic", "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Quantile", "Deming", "TLS","Lin.Reg")) calib[[Element]] <- get(Element) }
   } else {
     cat("Mat is empty. Returning NAs.")
-    calib <- list(mo = NA,sdo = NA, mm = NA,sdm = NA, b1 = NA, ub1 = NA, b0 = NA, ub0 = NA, RSS = NA,rmse = NA, mbe = NA, Correlation = NA, nb = NA, CRMSE = NA, 
-                  NMSD = NA, Mat = NA, Regression = Regression, Add.ubss = Add.ubss, m2 = NA,
-                  Lin.Reg = NA)
+    calib <- list(mo = NA,sdo = NA, mm = NA,sdm = NA, b1 = NA, ub1 = NA, b0 = NA, ub0 = NA, RSS = NA,rmse = NA, mbe = NA, Correlation = NA, nb = NA,
+                  Mat = NA, Regression = Regression, Add.ubss = Add.ubss, m2 = NA,
+                  OLS.Models = NA, Lin.Reg = NA)
     if(Verbose){ # elements created only if Verbose = TRUE
       for(Element in c("OLS", "OLS.Diagnostic", "Lin.Reg")) calib[[Element]] <- NA}}
   
@@ -1525,7 +1560,7 @@ U_orth_DF.2 <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = 
       
       cat(paste0("Plotting heteroskedascity, homogenity of variance of residuals for ", Regression, " model"))
       plot(performance::check_model(OLS))
-      OLS.Diagnostic <- nice_table(nice_assumptions(OLS), col.format.p = 2:4)
+      OLS.Diagnostic <- rempsyc::nice_table(rempsyc::nice_assumptions(OLS), col.format.p = 2:4)
       OLS.Diagnostic}
     
     # Ordinary Least square with  weighing according to scattering in 10 lags over the xis range
