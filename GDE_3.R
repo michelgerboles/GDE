@@ -1,5 +1,5 @@
-## ui.R ##
-## app.R ##
+## GDE_3.R ##
+
 # Get from where is launch the script
 get_current_file_path <- function(){
   
@@ -10,10 +10,11 @@ get_current_file_path <- function(){
   return(dirname(this_file))}
 WD <- get_current_file_path()
 
-## app.R ##
+## packages for GDE_3.R ####
 librarian::shelf(shiny)
 librarian::shelf(shinydashboard)
 librarian::shelf(shinyWidgets)
+librarian::shelf(shinycssloaders)
 librarian::shelf(DT)               # for DT table
 librarian::shelf(knitr)            # for reporting
 librarian::shelf(rmarkdown)        # for rendering html created with RMD
@@ -28,8 +29,7 @@ librarian::shelf(shinyalert)       # shiny message, inflo and alert
 librarian::shelf(gridExtra)        # for plotting with grid.arrange of moments
 librarian::shelf(moments)          # skewness and kurtosis. we could use package psych instead
 
-# Linear regression ppackages
-# Package loading
+## packages for Functions4GDFE.R ####
 librarian::shelf(see, quiet = T)        # needed for visualisation of "Performance"
 librarian::shelf(performance, quiet = T)# Check Linear model assumptions
 librarian::shelf(qqplotr, quiet = T)    # for performance, plotting qqplot
@@ -55,25 +55,19 @@ colour_vector <- c("red", "blue", "black", "green", "cornflowerblue", "chocolate
                    "goldenrod4", "darkred")
 
 # Sourcing necessary functions for computation
-source("Functions4GDE.R")
-# Download the file
-# for function get.DQO(), source Functions4ASE.R assuming that it is in the parent directory
-# Specify the URL of the file to download
-url_Functions4ASE  <- "https://raw.githubusercontent.com/ec-jrc/airsenseur-calibration/refs/heads/master/Functions4ASE.R"
-WD_Functions4ASE   <- file.path(WD, "Functions4ASE.R")
-download.file(url_Functions4ASE, destfile = WD_Functions4ASE, method = "auto")
-url_Sensor_ToolBox <- "https://raw.githubusercontent.com/ec-jrc/airsenseur-calibration/refs/heads/master/151016%20Sensor_Toolbox.R"
-WD_Sensor_ToolBox  <- file.path(WD, "151016 Sensor_Toolbox.R")
-download.file(url_Sensor_ToolBox, destfile = WD_Sensor_ToolBox, method = "auto")
+# for function get.DQO(), source Functions4ASE.R 
+# Download updated version of Functions4ASE.R and 151016 Sensor_Toolbox.R on Github
+source(file.path(WD,"Load_Files_Github.R"))
 source(file.path(WD,"Functions4ASE.R"))
 source(file.path(WD,"151016 Sensor_Toolbox.R"))
 
 # Local files
-#source(file.path(dirname(WD),"Functions4ASE.R"))
-#source(file.path(dirname(WD),"151016 Sensor_Toolbox.R"))
+source(file.path(dirname(WD),"Functions4ASE.R"))
+source(file.path(dirname(WD),"151016 Sensor_Toolbox.R"))
 
 # Sourcing necessary functions for computation
 source("Functions4GDE.R")
+
 
 # For the App
 source("sidebar.R")
@@ -160,7 +154,7 @@ server <- function(input, output, session) {
         if(!lubridate::is.POSIXct(Data$DT[[Data$Name.Date]])){
           data.table::set(Data$DT, j = Data$Name.Date, 
                           value = as.POSIXct(Data$DT[[Data$Name.Date]],  tz = "UTC",
-                                             tryFormats = c("%d.%m.%Y", "%Y-%m-%d %H:%M:%OS", "%Y/%m/%d %H:%M:%OS", "%Y-%m-%d %H:%M:%S",
+                                             tryFormats = c("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%OS", "%Y/%m/%d %H:%M:%OS", "%Y-%m-%d %H:%M:%S",
                                                             "%Y-%m-%d %H.%M.%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%d/%m/%Y %H:%M",
                                                             "%Y-%m-%d", "%m/%d/%Y")))}}
       ############################## Message Date not find or format not find, CM and RM not identified, Instrment missing
@@ -815,6 +809,10 @@ server <- function(input, output, session) {
                                  Name.CM = Data$Name.CM, Name.SN = Data$Name.SN, Name.RM = Data$Name.RM,
                                  Type =  input$Type, low_thr = as.numeric(input$Max.Ref.Bias)))
     })
+    # tab Diagnostics, OLS.Models
+    output$OLS.Models <- renderPlot(CM_Corrected()$OLS.Models)
+    
+    # Icons
     output$info.MBE.1 <- shinydashboard::renderInfoBox({
       shinydashboard::infoBox(
         title = paste0("MBE (CMi -RM)"),
@@ -1012,5 +1010,4 @@ server <- function(input, output, session) {
 
 # run App
 options(browser = "C:\\Program Files (x86)\\Google\\Chrome\\Application/chrome.exe")
-
 shinyApp(ui, server, options = list(launch.browser = TRUE))
