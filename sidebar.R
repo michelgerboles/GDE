@@ -30,7 +30,7 @@ sidebar <- dashboardSidebar(
                        shinyWidgets::pickerInput(
                          inputId = "Type",
                          label = "Type",
-                         choices = c("Fixed type testing", "Fixed on-going","Indicative"),
+                         choices = c("Fixed type testing", "Fixed on-going","Indicative type testing","Indicative on-going"),
                          selected = "Fixed type testing",
                          options = list(
                            title = "Choose type")),
@@ -168,7 +168,20 @@ sidebar <- dashboardSidebar(
                          options = list(
                            title = "RSS is fitted or averaged?")),
 
-
+                       shinyWidgets::switchInput(
+                         inputId = "Variable.ubsRM",
+                         #label = "Variable.ubsRM",
+                         value = FALSE,
+                         label = "variable ubsRM for deming?",
+                         width = "auto"),
+                       
+                       shinyWidgets::switchInput(
+                         inputId = "Variable.ubsCM",
+                         #label = "Variable.ubsCM",
+                         value = FALSE,
+                         label = "variable ubsCM for deming?",
+                         width = "auto"),
+                       
                        startExpanded = FALSE
               ),
 

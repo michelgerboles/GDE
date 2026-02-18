@@ -178,6 +178,18 @@ server <- function(input, output, session) {
       
       Data$Name.CM <- grep("CM", names(Data$DT), value = T)
       Data$Name.RM <- grep("RM", names(Data$DT), value = T)
+      # Updating Input$type according to number of RM
+      if(length(Data$Name.RM) < 2){
+        updatePickerInput(
+          inputId = "Type",
+          label   = "Type",
+          choices = c("Fixed on-going","Indicative type testing","Indicative on-going"),
+          value   = "Fixed on-going",
+          options = NULL,
+          options = list(
+            title = "Choose type")
+        )
+      } 
       Data$Name.SN <- grep("SN", names(Data$DT), value = T)
       
       # Converting Data$Name.CM and Data$Name.RM to numeric if needed
@@ -283,6 +295,17 @@ server <- function(input, output, session) {
       
       # Returning only data for Instrument and Pollutant
       return(Data$DT[Instrument == input$Instrument & Pollutant == input$Pollutant])
+    })
+    
+    # Modify tabs of statistics according to input$Type
+    observeEvent(input$Type,{
+      if(input$Type == "Fixed type testing"){
+        shiny::hideTab(inputId = "tabset2", target = "CM_OLS")
+        shiny::hideTab(inputId = "tabset2", target = "CM_Weighted")
+      } else  if(input$Type == "Fixed on-going"){
+        shiny::showTab (inputId = "tabset2", target = "CM_OLS")
+        shiny::showTab (inputId = "tabset2", target = "CM_Weighted")
+      }
     })
     
     # Table of data rhandsometable
@@ -881,34 +904,46 @@ server <- function(input, output, session) {
     # Body Tab item "CM_OLS" ----
     CM_Corrected <- shiny::reactive({
       
+      shiny::req(input$Type %in% c("Fixed type testing", "Indicative type testing"))
+      
       # Initialising return list
-      CM_Stats <- list()
+      U_orth_DF <- list()
       
       # Selecting regression methods for test
       Tested.Models <- c("OLS", "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Deming", "TLS")
       
       # Selecting RM and CM in long format
-      DT <- melt(Data.DT()[,.SD, .SDcols =c("date", "RM", Data$Name.CM)], id.vars = c("date", "RM"), measured.vars = c(Data$Name.CM), value.name = c("CM"), variable.name = "Cm_Type") 
+      DT <- melt(
+        Data.DT()[,.SD, .SDcols =c("date", "Campaign", "RM", Data$Name.CM, Data$Name.SN)],
+        id.vars = c("date", "RM", "Campaign"),
+        measure.vars = patterns("^CM", "^SN"),
+        value.name = c("CM", "SN"),
+        variable.name = "Cm_Type")
       DT[, Cm_Type := NULL]
       data.table::setnames(DT, c("date","RM", "CM"), c("Date", "xis", "yis"))
       
-      CM_Stats <- U_orth_DF(Mat = DT, Regression = "OLS", Tested.Models = Tested.Models,
-                            variable.ubsRM = FALSE, ubsRM = ubs()$ubsRM, perc.ubsRM = 0.02,
-                            variable.ubss  = FALSE, ubss  = ubs()$ubsCM, perc.ubss  = NULL, Add.ubss = FALSE,
-                            Fitted.RS = as.logical(input$Fitted.RS), Forced.Fitted.RS = FALSE, ID = NULL,
-                            Verbose = TRUE)
+      # Default regresson method of GDE for candidate method and of sensor of TS 17660
+      if(input$Type == "Fixed type testing") {
+        Regression = "TLS"
+      } else Regression = "OLS"
+      
+      U_orth_DF <- U_orth_DF(Mat = DT, Regression = Regression, Tested.Models = Tested.Models,
+                             variable.ubsRM = input$Variable.ubsRM, ubsRM = ubs()$ubsRM, perc.ubsRM = 0.02,
+                             variable.ubss  = input$Variable.ubsCM, ubss  = ubs()$ubsCM, perc.ubss  = NULL, Add.ubss = FALSE,
+                             Fitted.RS = as.logical(input$Fitted.RS), Forced.Fitted.RS = FALSE, ID = NULL,
+                             Verbose = TRUE, Keep.Cols = TRUE)
       
       # Adding CM corrected values to Data.DT, computing differences between corrected CM and differences to RM for each CM corrected
       CM_Corrected <- copy(Data.DT())
       for(Model in Tested.Models){
         for(CM in Data$Name.CM){
-          CM_Corrected[,  paste0(CM, "_",Model)           := Meas_Function(y =  CM_Corrected[[CM]], Mod_type = "Linear", Model = CM_Stats[[Model]], Verbose = TRUE)]
+          CM_Corrected[,  paste0(CM, "_",Model)           := Meas_Function(y =  CM_Corrected[[CM]], Mod_type = "Linear", Model = U_orth_DF[[Model]], Verbose = TRUE)]
           CM_Corrected[,  paste0(CM, "_",Model, "_DELTA") := CM_Corrected[[paste0(CM, "_",Model)]] - CM_Corrected[["RM"]]]
         }
         CM_Corrected[, paste0("CM_",Model,"_DELTA") := CM_Corrected[[paste0(Data$Name.CM[1], "_",Model)]] - CM_Corrected[[paste0(Data$Name.CM[2], "_",Model)]]]
       }
       
-      return(list(CM_Corrected = CM_Corrected, CM_Stats = CM_Stats))
+      return(list(CM_Corrected = CM_Corrected, U_orth_DF = U_orth_DF))
     })
     output$CM_OLS <- renderPlot(Plot.CM_OLS()) # , height = function() {session$clientData$output_Scatterplot1_height - 40}
     Plot.CM_OLS <- shiny::reactive({
@@ -959,7 +994,7 @@ server <- function(input, output, session) {
     
     output$Table.Reg.Lines <- DT::renderDataTable({
       datatable(
-        CM_Corrected()$CM_Stats$Lin.Reg,
+        CM_Corrected()$U_orth_DF$Lin.Reg,
         options = list(
           dom = 't'  # Only show table, hide other elements
         )

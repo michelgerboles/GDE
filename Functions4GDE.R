@@ -232,7 +232,7 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
 
 # function to compute average and Ubs by Lag
 DT_Weighing <- function(DT, name.date, name.V1, name.V2, Lag, outliers = FALSE, Verbose = TRUE){
-  #browser()
+  
   # checking names in DT
   stopifnot(all(c(name.date, name.V1, name.V2) %in% names(DT)))
   
@@ -1042,7 +1042,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
                       variable.ubsRM = FALSE, ubsRM = NULL, perc.ubsRM = 0.02,
                       variable.ubss  = FALSE, ubss  = NULL, perc.ubss  = NULL, Add.ubss = TRUE,
                       Fitted.RS = FALSE, Forced.Fitted.RS = FALSE, ID = NULL,
-                      Verbose = FALSE, Plot, Plot_Line = FALSE) {
+                      Verbose = FALSE, Plot, Plot_Line = FALSE, Keep.Cols = FALSE) {
   
   #checking that Mat is not empty
   if (exists("Mat") && !is.null(Mat) && nrow(Mat) > 0) {
@@ -1057,9 +1057,10 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     # Checking if ubsRM and ubss are provided in Mat
     ubsRM.Mat <- !"ubsRM" %in% Missing.Cols
     ubss.Mat  <- !"ubss"  %in% Missing.Cols
-    #colnames(Mat) <- c("case", "Date", Versus, "yis","ubsRM", "ubss")[1:length(colnames(Mat))]
+    
+    # Checking if some columns needs be deleted
     Additional.Cols <- setdiff(names(Mat), c("case", "Date", Versus, "yis","ubsRM", "ubss"))
-    if(Verbose && length(Additional.Cols) >0){
+    if(!Keep.Cols && Verbose && length(Additional.Cols) >0){
       futile.logger::flog.warn(paste0("[U_orth_DF] Mat includes additional columns that are discarded: ", paste(Additional.Cols, collapse = ", ")))
       Mat[, (Additional.Cols) := NULL]}
     
@@ -1098,7 +1099,6 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     } else if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] using u(bs,s) provided in Mat."))
     
     # Fitting Linear Models ###
-    browser()
     # Ordinary least square Linear Regression, OLS with outliers being discarded ###
     Formula <- as.formula(paste0("yis ~ ", Versus))
     OLS <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
@@ -1163,10 +1163,8 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     # Fitting Deming regression, it takes care of constant or variable Errors on x and y
     if("Deming" %in% Tested.Models){
       
-      browser()
-      
       if (!variable.ubsRM && !variable.ubss) {
-        
+        # Constant ubs
         Delta <- (ubss/ubsRM)^2
         if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with constant u(bs,RM) and u(bs,s).")
         # if boot = TRUE and keep.boot = FALSE, MethComp::Deming returns a matrix with coefficients, se and confidence interval
@@ -1219,8 +1217,13 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
           ub0 <- round(st.errors[1], 2)
           b1  <- round(coef(get(Model))[2], 3)
           ub1 <- round(st.errors[2], 3)
-          covb0b1 <- vcov(get(Model))[1,2]
+          covb0b1 <- round(vcov(get(Model))[1,2],4)
           R2 <-  round(broom::glance(get(Model))$r.squared,3)
+          
+          # # other computation of standard errors:
+          # ub0 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[1, "Std. Error"]
+          # ub1 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[2, "Std. Error"]
+          
         } else if (Model == "Quantile"){
           # getting coefficients and standard error https://cran.r-project.org/web/packages/quantreg/vignettes/rq.pdf
           Summary <- summary(Quantile,se = "nid", cov = TRUE)
@@ -1229,23 +1232,20 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
           b1  <- round(Summary$coefficients[,1][2], 3)
           ub1 <- round(Summary$coefficients[,2][2], 3)
           R2 = round(R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5),3)
-          browser()
           covb0b1 <- round(Summary$cov[1, 2], 4 ) # chatGPT asked
         } else if (Model == "Deming"){
-          browser()
           if (!variable.ubsRM && !variable.ubss) {
             b0  <- round(Deming$coefficients[1], 2)
-            ub0 <- round(sqrt(diag(Deming$variance)[1]), 2)
+            ub0 <- round(Deming$Deming.MethComp[1,2], 2)
             b1  <- round(Deming$coefficients[2], 3)
-            browser()
-            ub1 <- round(sqrt(Deming$variance[2,2]), 3)
-            covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 3)
+            ub1 <- round(Deming$Deming.MethComp[2,2], 3)
+            covb0b1 <- round(cov(Deming$Deming.MethComp.COV[,c(1,2)])[1,2], 4)
           } else {
             b0  <- round(coef(Deming)[1], 2)
             ub0 <- round(sqrt(diag(Deming$variance)[1]), 2)
             b1  <- round(coef(Deming)[2], 3)
             ub1 <- round(sqrt(diag(Deming$variance)[2]), 3)
-            covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 3)}
+            covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 4)}
           R2 = NA
         } else if (Model == "TLS"){
           b0  <- round(coef(TLS)[1], 2)
@@ -1255,23 +1255,8 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
           # ub0 and ub1 are computed by 1000 bootstrap (as in deming::Deming) while in the GDE, equations are given (see below). The values ub0  and ub1 are different when computed by the two methods
           covb0b1 <- round(cov(TLS$fit.MethComp.COV)[1,2],4)
           
-          # as in annex b of Guide for The Demonstration of Equivalence
-          # Syy <- sum((Mat[["yis"]] - mm)^2)
-          # Sxy <- sum((Mat[[Versus]] - mo) * (Mat[["yis"]] - mm))
-          # Sxx <- sum((Mat[[Versus]] - mo)^2)
-          # b1  <- (Syy - Sxx + sqrt((Syy- Sxx)^2 + 4*Sxy^2))/(2*Sxy)
-          # b0  <- mm - b1 * mo
-          # ub1 <- sqrt((Syy - (Sxy^2/Sxx))/((nb-2)*Sxx))
-          # ub0 <- sqrt(ub1^2 * sum(Mat[[Versus]]^2)/nb)
-          
           # https://stats.stackexchange.com/questions/86453/coefficient-of-determination-of-a-orthogonal-regression/180173
-          # R2= 1- SSres/SStot
-          # where SSres is the sum of squares of residuals, and SStot is the total sum of squares. To apply it in my case I considered:
-          # SSres=bid((xi,yi);(x^,y^))B2 where d((xi,yi);(x^,y^)) is the distance of point (xi,yi) to the best fit line.
-          # and SStot=bd((xi,yi);(xm,ym))B2 where xm is the mean of all the xi and ym is the mean of all the yi.
-          SSres <- pracma::odregress(Mat[["xis"]], Mat[["yis"]])$ssq
-          SStot <- sum((Mat[["yis"]] - mm)^2 + (Mat[[Versus]] - mo)^2)
-          R2 <- round(1 - SSres/SStot,3)
+          R2 <- round(summary(TLS)$r.squared,3)
         }
         if(exists("Lin.Reg")){
           Lin.Reg <- data.table::rbindlist(list(Lin.Reg, list(Model = Model, b0 = b0, ub0 = ub0, b1 = b1, ub1 = ub1, R2 = R2, covb0b1 = covb0b1)), use.names = T, fill =T)
@@ -1282,58 +1267,18 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     }
     
     # Selecting regression type for computing U and Ur
-    browser()
-    m2 = get(Regression)
-    b0  <- Lin.Reg[Model == Regression]$b0
-    ub0 <- Lin.Reg[Model == Regression]$ub0
-    b1  <- Lin.Reg[Model == Regression]$b1
-    ub1 <- Lin.Reg[Model == Regression]$ub1
-    if (Regression == "TLS") {
-      # as in annex b of Guide for The Demonstration of Equivalence
-      Syy <- sum((Mat[["yis"]] - mm)^2)
-      Sxy <- sum((Mat[[Versus]] - mo) * (Mat[["yis"]] - mm))
-      Sxx <- sum((Mat[[Versus]] - mo)^2)
-      b1  <- (Syy - Sxx + sqrt((Syy- Sxx)^2 + 4*Sxy^2))/(2*Sxy)
-      b0  <- mm - b1 * mo
-      ub1 <- sqrt((Syy - (Sxy^2/Sxx))/((nb-2)*Sxx))
-      ub0 <- sqrt(ub1^2 * sum(Mat[[Versus]]^2)/nb)
-    } else if (Regression == "Deming"){
-      if (!variable.ubsRM && !variable.ubss) {
-        b0  <- m2[1] 
-        b1  <- m2[2]
-        ub0 <- m2[1,2]
-        ub1 <- m2[2,2]
-        browser()
-        # other computation of standard errors:
-        # https://bookdown.org/ccolonescu/RPoE4/heteroskedasticity.html
-        ub0 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[1, "Std. Error"]
-        ub1 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[2, "Std. Error"]
-      } else {
-        b0  <- coef(m2)[1] 
-        b1  <- coef(m2)[2]
-        ub1 <- sqrt(diag(m2$variance)[2])
-        ub0 <- sqrt(diag(m2$variance)[1])
-      }
-    } else if (Regression == "Quantile"){
-      
-      # getting coefficients and standard error https://cran.r-project.org/web/packages/quantreg/vignettes/rq.pdf
-      Summary <- summary(Quantile,se = "nid")
-      b0  <- paste0(round(Summary$coefficients[,1][1], 2))
-      ub0 <- paste0(round(Summary$coefficients[,2][1], 2))
-      b1  <- paste0(round(Summary$coefficients[,1][2], 3))
-      ub1 <- paste0(round(Summary$coefficients[,2][2], 3))
-      R2 = R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5)
-      
-    } else if (Regression %in% c("OLS", "OLS.Weighing","WLS_OLS","WLS_ubss")) {
-      
-      # Parameters of regression lines
-      b0  <- coef(m2)[1] 
-      b1  <- coef(m2)[2]
-      st.errors <- sqrt(diag(vcov(m2)))
-      ub0 <- st.errors[1]
-      ub1 <- st.errors[2]
-      
-    } else return(futile.logger::flog.error("[U_orth_DF] unknown regression type. Only \"OLS\", \"OLS.Weighing\", \"WLS\", , \"Quantile\", \"Deming\" (Delta is ubss^2/ubsRM^2) or \"TLS\" (Delta is 1) regressions can be used"))
+    if((Regression %in% Tested.Models)){
+      m2 = get(Regression)
+      b0      <- Lin.Reg[Model == Regression]$b0
+      ub0     <- Lin.Reg[Model == Regression]$ub0
+      b1      <- Lin.Reg[Model == Regression]$b1
+      ub1     <- Lin.Reg[Model == Regression]$ub1
+      covb0b1 <- Lin.Reg[Model == Regression]$covb0b1
+    } else {
+      return(
+        futile.logger::flog.error("[U_orth_DF] unknown regression type. 
+                                  Only \"OLS\", \"OLS.Weighing\", \"WLS\", , \"Quantile\", \"Deming\" (Delta is ubss^2/ubsRM^2) or \"TLS\" (Delta is 1) regressions can be used"))
+    }
     
     # Squares of Residuals and bias (vector of values)
     Mat[, fitted    := b0 + b1 * Mat[[Versus]]]
@@ -1349,6 +1294,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     
     # testing for heterosKedasticity with Breusch Pagan test, the two packages gives the same p.value
     # https://www.r-bloggers.com/2016/01/how-to-detect-heteroscedasticity-and-rectify-it/
+    # https://bookdown.org/ccolonescu/RPoE4/heteroskedasticity.html
     Breusch.Pagan     <- lmtest::bptest(formula = OLS, studentize = T)
     Breusch.Pagan     <- skedastic::breusch_pagan(mainlm = OLS, koenker = TRUE, statonly = FALSE)
     
@@ -1624,7 +1570,6 @@ U_orth_DF.2 <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = 
           b1  <- round(Summary$coefficients[,1][2], 3)
           ub1 <- round(Summary$coefficients[,2][2], 3)
           R2 = round(R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5),3)
-          browser()
           covb0b1 <- Summary$cov[1, 2] # chatGPT asked
         } else if (Model == "Deming"){
           if (!variable.ubsRM && !variable.ubss) {
@@ -1925,7 +1870,7 @@ Meas_Function <- function(y, Mod_type, Model, Date = NULL, name.sensor= NA_chara
 }
 
 # Function to plot uncertainty computed by GDR, 95th percentile of Delta, 2sqrt(sd(Delta)^2 + mean(Delta)^2) and computation according to GUM method
-#' @param CM_Corrected (mandatory) list with 2 elements CM_Corrected and CM_stats as computed with reactive function CM_Corrected()
+#' @param CM_Corrected (mandatory) list with 2 elements CM_Corrected and U_orth_DF as computed with reactive function CM_Corrected()
 #' @param Name.CM (mandatory) vector of character vectors, names of column of CM_Corrected$CM_Corrected with data for candidate analysers
 #' @param Model_Type (mandatory) character, it can be Raw, OLS, Deming or Weighted
 #' @param LV.Interval description
@@ -1934,7 +1879,6 @@ Meas_Function <- function(y, Mod_type, Model, Date = NULL, name.sensor= NA_chara
 #' @param Unit (mandatory) character vector, unit of measurements
 U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 30, SelectDQO, unit.ref) {
   
-  browser()
   if(Model_Type == "Raw"){
     Model_Type <- "Raw"
     Name.CM_DELTA <- paste0(Name.CM, "_DELTA")
@@ -1944,6 +1888,7 @@ U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 3
     Name.CM_DELTA <- paste0(Name.CM, paste0("_",Model_Type,"_DELTA"))
     Name.CM_Corrected <- paste0(Name.CM, "_",Model_Type)
   } 
+  
   Corrected <- melt(
     CM_Corrected$CM_Corrected[,.SD, .SDcols =c("date", "RM", "Campaign", Name.CM, Name.CM_DELTA, Name.CM_Corrected)],
     id.vars = c("date", "RM", "Campaign"),
@@ -1958,6 +1903,14 @@ U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 3
   
   # selected rows for uncertainty, alert message if not enough data
   N.LV <- Corrected[RM >= (1 - as.numeric(LV.Interval)) * SelectDQO$LV & RM <= (1 + as.numeric(LV.Interval)) * SelectDQO$LV, which = T]
+  
+  # Computing uncertainty
+  Corrected[N.LV, U.95th   := quantile(abs(Corrected[N.LV]$CM_DELTA), probs = 0.95, na.rm = T), by=.(Campaign)]
+  Corrected[N.LV, U.MBE_SD := 2 * sqrt(sd(Corrected[N.LV]$CM_DELTA, na.rm = T)^2 + mean(abs(Corrected[N.LV]$CM_DELTA), na.rm = T)^2)]
+  
+  # selected rows for uncertainty, alert message if not enough data
+  browser()
+  N.LV <- CM_Corrected$U_orth_DF$Mat[xis >= (1 - as.numeric(LV.Interval)) * SelectDQO$LV & xis <= (1 + as.numeric(LV.Interval)) * SelectDQO$LV, which = T]
   if(length(N.LV) < min.N){
     my_message <- paste0("[GDE_App,Uncertainy] ERROR, missing data at LV, evaluation cannot proceed.")
     shinyalert::shinyalert(title = Title,
@@ -1975,58 +1928,42 @@ U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 3
                            animation         = FALSE)
     return()
   }
+  CM_Corrected$U_orth_DF$Mat[N.LV, U.95th   := quantile(abs(yis - xis), probs = 0.95, na.rm = T), by=.(Campaign, SN)]
+  CM_Corrected$U_orth_DF$Mat[N.LV, U.MBE_SD := 2 * sqrt(var(yis - xis, na.rm = T) + mean(abs(yis - xis), na.rm = T)^2), by=.(Campaign, SN)]
+  CM_Corrected$U_orth_DF$Mat[N.LV, MBE := mean(abs(yis - xis), na.rm = T), by=.(Campaign, SN)]
+  CM_Corrected$U_orth_DF$Mat[N.LV, SD := sd(yis - xis, na.rm = T), by=.(Campaign, SN)]
   
-  # Computing uncertainty
-  Corrected[N.LV, U.95th   := quantile(abs(Corrected[N.LV]$CM_DELTA), probs = 0.95, na.rm = T)]
-  Corrected[N.LV, U.MBE_SD := 2 * sqrt(sd(Corrected[N.LV]$CM_DELTA, na.rm = T)^2 + mean(abs(Corrected[N.LV]$CM_DELTA), na.rm = T)^2)]
+  # plotting without GUM estimation of uncertainty
+  GGPLOT <- ggplot(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis)) + 
+    geom_point(aes(y = U.95th, color = "U.95th")) + 
+    geom_point(aes(y = U.MBE_SD, color = "U.MBE_SD")) + 
+    #geom_point(aes(y = U, color = "GUM")) + 
+    geom_line(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis, y = U, color = "GDE")) + 
+    geom_vline(xintercept = SelectDQO$LV) + 
+    annotate("text", x = SelectDQO$LV, y = 0, label = "LV", color = "darkred") + 
+    geom_hline(yintercept = SelectDQO$DQO) + 
+    annotate("text", x = 0, y = SelectDQO$DQO, label = "DQO", color = "darkred") + 
+    scale_color_manual(values = c("U.95th" = "red", "U.MBE_SD" = "orange", "GUM" = "blue", "GDE" = "green")) +
+    labs(x = paste0("Mean reference data in ", unit.ref),
+         y = "Expanded uncertianty of measurements in ", unit.ref) +
+    facet_wrap(~ SN + Campaign) +
+    theme_minimal()
+  
   
   # GUM uncertainty
   if(Model_Type != "Raw"){
     
-    # Adding RS to comput U with the old GDE method, merging on date and CM since CM/yis is from 2 instrument resulting in duplicated date
-    Corrected <- merge(Corrected[order(date)],
-                       CM_Corrected$CM_Stats$Mat[order(Date),.SD,.SDcols = c("Date", "yis", "RS")], 
-                       by.x = c("date", "CM"), by.y = c("Date", "yis"), all = T)
+    browser()
+    b0      <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$b0
+    ub0     <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$ub0
+    b1      <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$b1
+    ub1     <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$ub1
+    covb0b1 <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$covb0b1
     
-    b0      <- CM_Corrected$CM_Stats$Lin.Reg[Model == Model_Type]$b0
-    ub0     <- CM_Corrected$CM_Stats$Lin.Reg[Model == Model_Type]$ub0
-    b1      <- CM_Corrected$CM_Stats$Lin.Reg[Model == Model_Type]$b1
-    ub1     <- CM_Corrected$CM_Stats$Lin.Reg[Model == Model_Type]$ub1
-    covb0b1 <- CM_Corrected$CM_Stats$Lin.Reg[Model == Model_Type]$covb0b1
+    CM_Corrected$U_orth_DF$Mat[, GUM := 2 * sqrt((-1/b1)^2 * (ub0^2 + RS) + ((CM_Corr - b0)/b1^2)^2 * ub1^2 - 2 * (CM_Corr - b0) / b1^3  * covb0b1)]
     
-    Corrected[, GUM := 2 * sqrt((-1/b1)^2 * (ub0^2 + RS) + ((CM_Corr - b0)/b1^2)^2 * ub1^2 - 2 * (CM_Corr - b0) / b1^3  * covb0b1)]
-    
-    return(
-      ggplot(data = Corrected, aes(x = RM)) + 
-        geom_point(aes(y = U.95th, color = "U.95th")) + 
-        geom_point(aes(y = U.MBE_SD, color = "U.MBE_SD")) + 
-        geom_point(aes(y = GUM, color = "GUM")) + 
-        geom_line(data = CM_Corrected$CM_Stats$Mat, aes(x = xis, y = U, color = "GDE")) + 
-        geom_vline(xintercept = SelectDQO$LV) + 
-        annotate("text", x = SelectDQO$LV, y = 0, label = "LV", color = "darkred") + 
-        geom_hline(yintercept = SelectDQO$DQO) + 
-        annotate("text", x = 0, y = SelectDQO$DQO, label = "DQO", color = "darkred") + 
-        scale_color_manual(values = c("U.95th" = "red", "U.MBE_SD" = "orange", "GUM" = "blue", "GDE" = "green")) +
-        labs(x = paste0("Mean reference data in ", unit.ref),
-             y = "Expanded uncertianty of measurements in ", unit.ref) +
-        theme_minimal()
-    )
-  } else {
-    
-    # plotting without GUM estimation of uncertainty
-    return(
-      ggplot(data = Corrected, aes(x = RM)) + 
-        geom_point(aes(y = U.95th, color = "U.95th")) + 
-        geom_point(aes(y = U.MBE_SD, color = "U.MBE_SD")) + 
-        geom_line(data = CM_Corrected$CM_Stats$Mat, aes(x = xis, y = U, color = "GDE")) + 
-        geom_vline(xintercept = SelectDQO$LV) + 
-        annotate("text", x = SelectDQO$LV, y = 0, label = "LV", color = "darkred") + 
-        geom_hline(yintercept = SelectDQO$DQO) + 
-        annotate("text", x = 0, y = SelectDQO$DQO, label = "DQO", color = "darkred") + 
-        scale_color_manual(values = c("U.95th" = "red", "U.MBE_SD" = "orange", "GDE" = "green")) +
-        labs(x = paste0("Mean reference data in ", unit.ref),
-             y = "Expanded uncertianty of measurements in ", unit.ref) +
-        theme_minimal()
-    )
+      GGPLOT <- GGPLOT + 
+        geom_line(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis, y = U, color = "GDE"))
   }
+  return(GGPLOT)
 }
