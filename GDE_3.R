@@ -113,6 +113,7 @@ server <- function(input, output, session) {
                  shiny::isTruthy(input$unit.ref) &&
                  shiny::isTruthy(input$Directive))
     
+    # get.DQO needs a few updates for the last Directive
     Data$All.DQOs <- get.DQO(
       name.gas         = input$Pollutant,
       Averaging.Period = input$Averaging.Period,
@@ -120,9 +121,14 @@ server <- function(input, output, session) {
       Directive        = input$Directive)
   })
   SelectDQO <- reactive({
+    if(input$Type %in% c("Fixed type testing", "Fixed on-going")){
+      DQO <- "DQO.0"
+    } else if(input$Type %in% c("Indicative type testing","Indicative on-going")){
+      DQO <- "DQO.1"
+    }
     data.table::data.table(LV  = Data$All.DQOs$LV,
-                           DQO = Data$All.DQOs$DQO.0,
-                           UR  = paste0(round(Data$All.DQOs$DQO.0 / Data$All.DQOs$LV*100),"%"))})
+                           DQO = Data$All.DQOs[[DQO]],
+                           UR  = paste0(round(Data$All.DQOs[[DQO]] / Data$All.DQOs$LV*100),"%"))})
   output$SelectDQO <- renderTable(SelectDQO())
   
   # Select data file
@@ -138,131 +144,258 @@ server <- function(input, output, session) {
   
   # loading data 
   observeEvent(Data$File,{
-    if (file.exists(Data$File)){
-      # Reading data file
-      Data$DT <- data.table::fread(Data$File)
-      
-      # Check content of data file (Date, RM1, RM2, CM1, CM2)
-      Data$Name.Date <- grep(paste(c("date", "Date"), collapse = "|"), names(Data$DT), value = T)
-      if(length(Data$Name.Date) != 1){
-        # MESSAGE NO DATE
-      } else {
-        # Convert Date to POSIXct and change name of date column if needed
-        if (Data$Name.Date != "date"){
-          data.table::setnames(Data$DT, Data$Name.Date, "date")
-          Data$Name.Date <- "date"}
-        if(!lubridate::is.POSIXct(Data$DT[[Data$Name.Date]])){
-          data.table::set(Data$DT, j = Data$Name.Date, 
-                          value = as.POSIXct(Data$DT[[Data$Name.Date]],  tz = "UTC",
-                                             tryFormats = c("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%OS", "%Y/%m/%d %H:%M:%OS", "%Y-%m-%d %H:%M:%S",
-                                                            "%Y-%m-%d %H.%M.%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%d/%m/%Y %H:%M",
-                                                            "%Y-%m-%d", "%m/%d/%Y")))}}
-      ############################## Message Date not find or format not find, CM and RM not identified, Instrment missing
-      
-      # Define a reactive expression to compute summary statistics of Data$DT
-      summaryFile <- reactive({
-        data_summary <- Data$DT[, .(
-          Count = .N,
-          Mean = mean(value, na.rm = TRUE),
-          SD = sd(value, na.rm = TRUE),
-          Min = min(value, na.rm = TRUE),
-          Max = max(value, na.rm = TRUE)
-        )]
-        data_summary
-      })
-      
-      # Render the summary table
-      output$summaryFile <- renderTable({
-        summaryFile()
-      }, rownames = TRUE)
-      
-      Data$Name.CM <- grep("CM", names(Data$DT), value = T)
-      Data$Name.RM <- grep("RM", names(Data$DT), value = T)
-      # Updating Input$type according to number of RM
-      if(length(Data$Name.RM) < 2){
-        updatePickerInput(
-          inputId = "Type",
-          label   = "Type",
-          choices = c("Fixed on-going","Indicative type testing","Indicative on-going"),
-          value   = "Fixed on-going",
-          options = NULL,
-          options = list(
-            title = "Choose type")
-        )
-      } 
-      Data$Name.SN <- grep("SN", names(Data$DT), value = T)
-      
-      # Converting Data$Name.CM and Data$Name.RM to numeric if needed
-      for(Measurement in c(Data$Name.CM, Data$Name.RM)){
-        if(!is.numeric(Data$DT[[Measurement]])) data.table::set(Data$DT, j = Measurement, value = suppressWarnings(as.numeric(Data$DT[[Measurement]])))}
-      
-      # Discarding rows with empty reference or empty candidate (one CM or one RM is sufficient to keep rows)
-      All.NA.CM <-Reduce(`&`, lapply(Data$Name.CM, function(col) is.na(Data$DT[[col]])))
-      All.NA.RM <-Reduce(`&`, lapply(Data$Name.RM, function(col) is.na(Data$DT[[col]])))
-      Data$DT <- Data$DT[-which(All.NA.CM|All.NA.RM)]
-      if(nrow(Data$DT) < 100) stop("Not enough data")
-      
-      # change name of column "size fraction to Pollutant, for correctly selecting data with DQO, update pollutant PickerInput
-      if("Size Fraction" %in% names(Data$DT)) data.table::setnames(Data$DT, "Size Fraction", "Pollutant")
-      Data$Name.Pollutant <- unique(Data$DT$Pollutant)
-      updatePickerInput(session = session, inputId = "Pollutant",
-                        choices  = Data$Name.Pollutant,
-                        selected = Data$Name.Pollutant[1])
-      # Add that abs(Delta(RM1, RM2)) < 2 to be done interactive with config file ###################
-      
-      # Listing instrument and updating ui
-      Data$Name.Instrument <- unique(Data$DT[Pollutant == Data$Name.Pollutant[1]]$Instrument)
-      output$uiInstrument <- shiny::renderUI({
-        shinyWidgets::pickerInput(
-          inputId  = "Instrument",
-          label    = "Instrument",
-          choices  = Data$Name.Instrument,
-          selected = Data$Name.Instrument[1],
-          options  = list(
-            title = "Choose INstrument"))})
-      
-      # creating handsome table
-      Data$datatable <- DT::datatable(
-        Data$DT,
-        extensions = c("Buttons"),  # Add export buttons
-        options = list(
-          dom = 'Bfrtip',  # Layout with buttons
-          buttons = c('csv', 'excel', 'pdf'),  # Export options
-          pageLength = 22,  # Default rows per page
-          editable   = TRUE, # possibility to edit the values
-          scrolly    = TRUE,
-          autoWidth  = TRUE,
-          ordering   = TRUE  # Allow sorting
-        ),
-        class = "display",  # DT class for styling
-        rownames = FALSE  # Hide row names
-      )
+    
+    # Reading data file
+    Data$DT <- data.table::fread(Data$File)
+    
+    # Check content of data file (Date, RM1, RM2, CM1, CM2)
+    Data$Name.Date <- grep(paste(c("date", "Date"), collapse = "|"), names(Data$DT), value = T)
+    if(length(Data$Name.Date) != 1){
+      # MESSAGE NO DATE
+      my_message <- paste0("[GDE_App, Data] Error, cannot find column \"date\" or \"Date\", reload correct data. The App is likely to crash")
+      cat(my_message)
+      shinyalert::shinyalert(title = "ERROR data file",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "error",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 5000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+      # opening window for selecting data again
+      shinyjs::click("btn")
     } else {
-      # Message no data file
+      # Convert Date to POSIXct and change name of date column if needed
+      if (Data$Name.Date != "date"){
+        data.table::setnames(Data$DT, Data$Name.Date, "date")
+        Data$Name.Date <- "date"}
+      if(!lubridate::is.POSIXct(Data$DT[[Data$Name.Date]])){
+        data.table::set(Data$DT, j = Data$Name.Date, 
+                        value = as.POSIXct(Data$DT[[Data$Name.Date]],  tz = "UTC",
+                                           tryFormats = c("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d", "%Y-%m-%d", "%m/%d/%Y",
+                                                          "%Y-%m-%d %H:%M:%OS", "%Y/%m/%d %H:%M:%OS", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H.%M.%S",
+                                                          "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%d/%m/%Y %H:%M")))}}
+    ############################## Message Date not find or format not find, CM and RM not identified, Instrment missing
+    
+    # Define a reactive expression to compute summary statistics of Data$DT
+    summaryFile <- reactive({
+      data_summary <- Data$DT[, .(
+        Count = .N,
+        Mean = mean(Data$DT[[Data$Name.RM[1]]], na.rm = TRUE),
+        SD = sd(Data$DT[[Data$Name.RM[1]]], na.rm = TRUE),
+        Min = min(Data$DT[[Data$Name.RM[1]]], na.rm = TRUE),
+        Max = max(Data$DT[[Data$Name.RM[1]]], na.rm = TRUE)
+      )]
+      data_summary
+    })
+    
+    # Render the summary table
+    output$summaryFile <- renderTable({
+      summaryFile()
+    }, rownames = TRUE)
+    
+    Data$Name.CM <- grep("CM", names(Data$DT), value = T)
+    if(length(Data$Name.CM) == 0){
+      # MESSAGE NO DATE
+      my_message <- paste0("[GDE_App, Data] Error, column(s) for CM is(are) missing. Reload correct data. The App is likely to crash")
+      cat(my_message)
+      shinyalert::shinyalert(title = "ERROR data file",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "error",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 5000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+      # opening window for selecting data again
+      shinyjs::click("btn")
     }
+    Data$Name.SN <- grep("SN", names(Data$DT), value = T)
+    if(length(Data$Name.SN) == 0){
+      # MESSAGE NO DATE
+      my_message <- paste0("[GDE_App, Data] WARN, column(s) for SN of CM is(are) missing. Columns with SN(s) A, B, C ... are added to the data file")
+      cat(my_message)
+      shinyalert::shinyalert(title = "ERROR data file",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "warning",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 5000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+      # Adding SN
+      for(SN in seq_along(Data$Name.CM)){
+        Data$DT[,(paste0("SN",SN)) :=  rep(LETTERS[SN], nrow(Data$DT))]
+      }
+    }
+    if(length(Data$Name.CM) != length(Data$Name.SN)){
+      # MESSAGE NO DATE
+      my_message <- paste0("[GDE_App, Data] Error, the number of CM columns is different than SN columns. Reload correct data. The App is likely to crash")
+      cat(my_message)
+      shinyalert::shinyalert(title = "ERROR data file",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "error",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 5000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+      # opening window for selecting data again
+      shinyjs::click("btn")
+    }
+    Data$Name.RM <- grep("RM", names(Data$DT), value = T)
+    if(length(Data$Name.RM) == 0){
+      # MESSAGE NO DATE
+      my_message <- paste0("[GDE_App, Data] WARN, column(s) for RM is(are) missing. Reload correct data. The App is likely to crash")
+      cat(my_message)
+      shinyalert::shinyalert(title = "ERROR data file",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "warning",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 5000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+      # opening window for selecting data again
+      shinyjs::click("btn")
+    }
+    
+    # Updating Input$type according to number of RM
+    if(length(Data$Name.RM) < 2){
+      updatePickerInput(
+        inputId = "Type",
+        label   = "Type",
+        choices = c("Fixed on-going","Indicative type testing","Indicative on-going"),
+        value   = "Fixed on-going",
+        options = NULL,
+        options = list(
+          title = "Choose type")
+      )
+    } 
+    
+    # Converting Data$Name.CM and Data$Name.RM to numeric if needed
+    for(Measurement in c(Data$Name.CM, Data$Name.RM)){
+      if(!is.numeric(Data$DT[[Measurement]])) data.table::set(Data$DT, j = Measurement, value = suppressWarnings(as.numeric(Data$DT[[Measurement]])))}
+    
+    # Discarding rows with empty reference or empty candidate (one CM or one RM is sufficient to keep rows)
+    All.NA.CM <-Reduce(`&`, lapply(Data$Name.CM, function(col) is.na(Data$DT[[col]])))
+    All.NA.RM <-Reduce(`&`, lapply(Data$Name.RM, function(col) is.na(Data$DT[[col]])))
+    Data$DT <- Data$DT[-which(All.NA.CM|All.NA.RM)]
+    if(nrow(Data$DT) < 100) stop("Not enough data")
+    
+    # change name of column "size fraction to Pollutant, for correctly selecting data with DQO, update pollutant PickerInput
+    if("Size Fraction" %in% names(Data$DT)) data.table::setnames(Data$DT, "Size Fraction", "Pollutant")
+    Data$Name.Pollutant <- unique(Data$DT$Pollutant)
+    updatePickerInput(session = session, inputId = "Pollutant",
+                      choices  = Data$Name.Pollutant,
+                      selected = Data$Name.Pollutant[1])
+    # Add that abs(Delta(RM1, RM2)) < 2 to be done interactive with config file ###################
+    
+    # Listing instrument and updating ui
+    Data$Name.Instrument <- unique(Data$DT[Pollutant == Data$Name.Pollutant[1]]$Instrument)
+    output$uiInstrument <- shiny::renderUI({
+      shinyWidgets::pickerInput(
+        inputId  = "Instrument",
+        label    = "Instrument",
+        choices  = Data$Name.Instrument,
+        selected = Data$Name.Instrument[1],
+        options  = list(
+          title = "Choose INstrument"))})
+    
+    # creating handsome table
+    Data$datatable <- DT::datatable(
+      Data$DT,
+      extensions = c("Buttons"),  # Add export buttons
+      options = list(
+        dom = 'Bfrtip',  # Layout with buttons
+        buttons = c('csv', 'excel', 'pdf'),  # Export options
+        pageLength = 22,  # Default rows per page
+        editable   = TRUE, # possibility to edit the values
+        scrolly    = TRUE,
+        autoWidth  = TRUE,
+        ordering   = TRUE  # Allow sorting
+      ),
+      class = "display",  # DT class for styling
+      rownames = FALSE  # Hide row names
+    )
+    
+    # updating Type of testing if input$Directive changes, e.g. if EN TS 17660 is selected type can only be indicative
+    observe({
+      
+      if(input$Directive == "EN TS 17660"){
+        shinyWidgets::updatePickerInput(
+          session = session,
+          inputId  = "Type",
+          selected = "Indicative type testing",
+          choices =c("Indicative type testing","Indicative on-going"))
+      } else {
+        shinyWidgets::updatePickerInput(
+          session = session,
+          inputId  = "Type",
+          selected = "Fixed type testing",
+          choices = c("Fixed type testing", "Fixed on-going","Indicative type testing","Indicative on-going"))
+      } 
+    })
     
     # updating list of instruments and choice of Averaging time if input$Pollutant changes
     observeEvent(input$Pollutant,{
+      
       if(input$Pollutant == "CO"){
         shinyWidgets::updatePickerInput(
+          session = session,
           inputId  = "Averaging.Period",
           selected = "24hour",
           choices = c("8hour", "24hour"))
       } else if(input$Pollutant %in% c("NO2", "SO2")){
         shinyWidgets::updatePickerInput(
+          session = session,
           inputId  = "Averaging.Period",
           selected = "1hour",
           choices = c("1hour", "24hour", "1year"))
       } else if(input$Pollutant %in% c("PM10", "PM2.5")){
         shinyWidgets::updatePickerInput(
+          session = session,
           inputId  = "Averaging.Period",
           selected = "24hour",
           choices = c("24hour", "1year"))
       } else if(input$Pollutant == "O3"){
         shinyWidgets::updatePickerInput(
+          session = session,
           inputId  = "Averaging.Period",
           selected = "24hour",
-          choices = c("8hour", "24hour"))}
+          choices = c("8hour", "24hour"))
+      } else if(input$Pollutant %in% c("PM10", "PM2.5")){
+        shinyWidgets::updatePickerInput(
+          session = session,
+          inputId  = "Averaging.Period",
+          selected = "24hour",
+          choices = c("24hour", "1year"))
+      }
       
       shiny::req(Data$DT)
       Data$Name.Instrument <- unique(Data$DT[Pollutant == input$Pollutant]$Instrument)
@@ -825,15 +958,19 @@ server <- function(input, output, session) {
       on.exit(progress$close())
       
       futile.logger::flog.info(paste0("[GDE_App, Plot.Ubs] INFO, visual check of CM_Raw level differences for ", input$Instrument))
+      Data.DT_noRM <- Data.DT()[setdiff(1:.N, i.Ref.outliers())]
+      Data.DT()[setdiff(1:.N, i.Ref.outliers())][is.finite(rowSums(Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD,.SDcols = Data$Name.CM]))]
       
       # Preparing plots and Return 1 combined plot
       return(
-        create_cm_analysis_plots(df = Data.DT()[is.finite(rowSums(Data.DT()[,.SD,.SDcols = Data$Name.CM]))],
+        create_cm_analysis_plots(df = Data.DT()[setdiff(1:.N, i.Ref.outliers())][is.finite(rowSums(Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD,.SDcols = Data$Name.CM]))],
                                  Name.CM = Data$Name.CM, Name.SN = Data$Name.SN, Name.RM = Data$Name.RM,
                                  Type =  input$Type, low_thr = as.numeric(input$Max.Ref.Bias)))
     })
     # tab Diagnostics, OLS.Models
-    output$OLS.Models <- renderPlot(CM_Corrected()$OLS.Models)
+    output$OLS.Models <- renderPlot(
+      CM_Corrected()$U_orth_DF$OLS.Models
+    )
     
     # Icons
     output$info.MBE.1 <- shinydashboard::renderInfoBox({
@@ -914,7 +1051,7 @@ server <- function(input, output, session) {
       
       # Selecting RM and CM in long format
       DT <- melt(
-        Data.DT()[,.SD, .SDcols =c("date", "Campaign", "RM", Data$Name.CM, Data$Name.SN)],
+        Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD, .SDcols =c("date", "Campaign", "RM", Data$Name.CM, Data$Name.SN)],
         id.vars = c("date", "RM", "Campaign"),
         measure.vars = patterns("^CM", "^SN"),
         value.name = c("CM", "SN"),
@@ -957,7 +1094,7 @@ server <- function(input, output, session) {
       
       # Preparing plots and Return 1 combined plot
       return(
-        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[is.finite(rowSums(Data.DT()[,.SD,.SDcols = Data$Name.CM]))],
+        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[setdiff(1:.N, i.Ref.outliers())][is.finite(rowSums(Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD,.SDcols = Data$Name.CM]))],
                                  Name.CM =  paste0(Data$Name.CM, "_OLS"), Name.SN = Data$Name.SN, Name.RM = Data$Name.RM,
                                  Type =  input$Type, low_thr = as.numeric(input$Max.Ref.Bias)))
     })
@@ -972,7 +1109,7 @@ server <- function(input, output, session) {
       futile.logger::flog.info(paste0("[GDE_App, Plot.Ubs] INFO, visual check of CM_Orth level differences for ", input$Instrument))
       
       return(
-        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[is.finite(rowSums(Data.DT()[,.SD,.SDcols = Data$Name.CM]))],
+        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[setdiff(1:.N, i.Ref.outliers())][is.finite(rowSums(Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD,.SDcols = Data$Name.CM]))],
                                  Name.CM =  paste0(Data$Name.CM, "_TLS"), Name.SN = Data$Name.SN, Name.RM = Data$Name.RM,
                                  Type =  input$Type, low_thr = as.numeric(input$Max.Ref.Bias)))
     })
@@ -987,7 +1124,7 @@ server <- function(input, output, session) {
       futile.logger::flog.info(paste0("[GDE_App, Plot.Ubs] INFO, visual check of CM_Weighted level differences for ", input$Instrument))
       
       return(
-        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[is.finite(rowSums(Data.DT()[,.SD,.SDcols = Data$Name.CM]))],
+        create_cm_analysis_plots(df = CM_Corrected()$CM_Corrected[setdiff(1:.N, i.Ref.outliers())][is.finite(rowSums(Data.DT()[setdiff(1:.N, i.Ref.outliers())][,.SD,.SDcols = Data$Name.CM]))],
                                  Name.CM =  paste0(Data$Name.CM, "_Deming"), Name.SN = Data$Name.SN, Name.RM = Data$Name.RM,
                                  Type =  input$Type, low_thr = as.numeric(input$Max.Ref.Bias)))
     })

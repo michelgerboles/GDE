@@ -30,7 +30,6 @@ remote_hash <- calculate_hash(temp_file)
 
 # Compare hashes and download if different
 if (is.null(local_hash) || local_hash != remote_hash) {
-    browser()
     file.copy(temp_file, destination_file, overwrite = TRUE)
     message(paste0(destination_file," downloaded and updated."))
 } else {
