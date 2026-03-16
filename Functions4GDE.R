@@ -11,13 +11,13 @@ calculate_basic_stats <- function(df, Pollutant) {
   
   
   # Uncertainty calculations
-  ubsRM <- round(sqrt(sum((df$RM1 - df$RM2)^2) / (2 * nrow(df))), 2)
-  ubsCM <- round(sqrt(sum((df$CM1 - df$CM2)^2) / (2 * nrow(df))), 2)
+  ubsRM <- round(sqrt(sum((df$RM1 - df$RM2)^2) / (2 * nrow(df))), 2)####################################################################################################################
+  ubsCM <- round(sqrt(sum((df$CM1 - df$CM2)^2) / (2 * nrow(df))), 2)####################################################################################################################
   
   # Limit value exceedance
   LV <- ifelse(Pollutant == "PM2.5", 25, ifelse(Pollutant == "PM10", 45, NA))
   n_up_LV <- sum(df$RM > LV)
-  ratio <- round((n_up_LV / nrow(df)) * 100, 0)
+  ratio <- round((n_up_LV / nrow(df)) * 100, 0)#########################################################################################################################################
   
   # RM statistics
   MBE_RM <- round(mean(df$RM1 - df$RM2), 2)
@@ -82,42 +82,26 @@ filter_data <- function(data, Instrument, Pollutant) {
 #' @description
 #' Verification of suitability of the reference measurements for the Fixed type testing
 #' @param df (mandatory) dataframe or data.table with  measurement data. It shall include columns: RM1 and CM1 for Type "Fixed on going" and in addition RM2 and CM2 for "Fixed Type Testing"
-#' @param Type (mandatory) character vector (string), can be "Fixed on going", "Fixed Type Testing" or "Indicative" as given by a PickerInput in GDE_3.R
+#' @param Type (mandatory) character vector (string), can be "Fixed Type Testing" "Fixed on going","Indicative type testing" or "Indicative on going" as given by a PickerInput in GDE_3.R
 #' @param Max.Ref.Bias (optional) numeric value, default is 2. Maximum allowed bias between 2 reference instrument for each row date
 #' @param Unit (mandatory) character vector, unit of measurements
-#' @param Name.CM (optional) vector of character vectors, default is NULL If not NULL: names of column of df with data for candidate analysers 
 #' @param Name.RM (optional) vector of character vector, default is NULL If not NULL: names of column of df with data for reference analysers 
 #' @param i.Ref.outliers (mandatory) numeric vector. Index of row for which Name.RM are flagged as outliers 
-#' @param min.N (optional) numeric, default is 100 Minimum nuber of rows to carry out the data treatment
+#' @param min.N (optional) numeric, default is 100. Minimum number of rows to carry out the data treatment
+#' @param Mean.diff (optional) numeric, default is 0.5. Maximum mean of differences between RM1 and RM2.
+#' @param Max.ubsRM (optional) numeric, default is 1. Maximum value for ubsRM. This is indicative since ubsRM is computed with all data including RM outliers
 #' @return la list with the following elements:
-#' - 4 ggplots: ref_time_plot, ref_hist_plot, diff_time_plot and diff_hist_plot,
-#' - 1 grid.arrange with the 4 previous plots
-#' - ubs_rm the as computed with the selected pairs of reference measurements, 2 digits, the square root of the square of residuals divided by 2 x number of pairs
+#' - 1 grid.arrange with ref_time_plot, ref_hist_plot, diff_time_plot and diff_hist_plot
+#' - ubs.rm the as computed with the selected pairs of reference measurements, 2 digits, the square root of the square of residuals divided by 2 x number of pairs. Not valid since outliers are not discarded
 #' - mean_diff, the mean of differences between reference measurements, 2 digits
-#' - i.Ref.outliers, the row indexes of the difference between reference measurements exceeding  Max.Ref.Bias
 #' @examples plots <- create_reference_plots(df_Fidas200_PM25)
-create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = NULL, Name.RM = NULL, i.Ref.outliers, min.N = 100) {
+create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.RM = NULL, i.Ref.outliers, min.N = 100, Mean.diff = 0.5, Max.ubsRM = 1.0) {
   
   # Convert to data.table for easier computation
   if(!data.table::is.data.table(df)) df <- data.table::as.data.table(df)
   
   Instrument <- unique(df$Instrument)
   Pollutant  <- unique(df$Pollutant)
-  # # The following test is not necessary since Instrument and Pollutant come from the PickerInput
-  # if (length(Instrument) != 1 || length(Pollutant) != 1) {
-  #   stop("Data frame must contain a single Instrument and Pollutant.")
-  # }
-  
-  # checking availability of data
-  # According to the pickerInput "Type" can only be either "Fixed on going", "Fixed type testing" or "Indicative"
-  Columns <- c(Name.CM, Name.RM)
-  
-  ############################################# Manage Alert #################################################C
-  # Checking availability of complete data
-  # df has been already checked for non NA row. Inutile, remove
-  df <- df[is.finite(rowSums(df[,.SD,.SDcols = Columns]))]
-  stopifnot(nrow(df) > min.N)
-  ############################################################################################################C
   
   if(Type == "Fixed type testing"){
     # Prepare plots with ggplot2, only using complete data set for RM1 and RM2
@@ -125,19 +109,19 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
     # Normally RM and RM_DELTA is already present but make it sure by testing and calculating
     if(!"RM" %in% names(df))   df[, RM   := apply(df[,.SD,.SDcols=Name.RM], MARGIN = 1, mean)]
     if(!"RM_DELTA" %in% names(df)) df[, RM_DELTA := apply(df[,.SD,.SDcols=Name.RM], MARGIN = 1, function(RMs) RMs[1] - RMs[2])]
-    mean_diff <- round(mean(df$RM_DELTA, na.rm = T), 2)
-    ubs_rm    <- round(sqrt(sum((df$RM_DELTA)^2, na.rm = T) / (2 * length(df$RM_DELTA[!is.na(df$RM_DELTA)]))), 2)
+    mean.diff <- round(mean(df$RM_DELTA, na.rm = T), 2)
+    ubs.rm    <- round(sqrt(sum((df$RM_DELTA)^2, na.rm = T) / (2 * length(df$RM_DELTA[is.finite(df$RM_DELTA)]))), 2)
     ref_time_plot <-
       ggplot2::ggplot(df, aes(x = RM, y = RM_DELTA)) +
       ggplot2::geom_point(alpha = 0.6) +
-      ggplot2::geom_hline(yintercept = mean_diff, color = "red", linewidth = 1) +
+      ggplot2::geom_hline(yintercept = mean.diff, color = "red", linewidth = 1) +
       ggplot2::geom_hline(yintercept = 0, color = "blue", linetype = "dashed", linewidth = 0.8) +
-      ggplot2::geom_hline(yintercept = c(-Max.Ref.Bias, Max.Ref.Bias), color = "orange", linetype = "dotted", linewidth = 0.5) +
+      ggplot2::geom_hline(yintercept = c(-Max.Ref.Bias, Max.Ref.Bias), color = "orange", linetype = "dotted", linewidth = 1.0) +
       ggplot2::labs(
         title = paste("Bland-Altman: RM1 vs RM2 -", Instrument, Pollutant),
         x = paste0("Average Concentration ((RM1 + RM2)/2, ", Unit, ")"),
         y = paste0("Difference (RM1 - RM2, ", Unit, ")"),
-        subtitle = paste("Mean bias =", mean_diff, Unit, "| ubsRM =", ubs_rm, " ", Unit)
+        subtitle = paste("Mean bias =", mean.diff, Unit, "| ubsRM =", ubs.rm, " ", Unit, " (all data)")
       ) +
       theme_minimal()
     
@@ -147,17 +131,13 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
       ggplot2::labs(
         title = paste("Distribution of Ref. concentration -", Instrument, Pollutant),
         x = paste0("Means of Reference measurements in ", Unit), y = "Counts",
-        subtitle = paste("n =", nrow(df)) # Aggiungi come sottotitolo
+        subtitle = paste("n =", nrow(df[is.finite(rowSums(df[,.SD,.SDcols = Name.RM]))]), " (Valid RM data pairs)")
       ) +
       theme_minimal() +
       ggplot2::theme(
         plot.subtitle = element_text(
-          color = ifelse(nrow(df) < min.N, "red", "darkgreen"),
+          color = ifelse(nrow(df[is.finite(rowSums(df[,.SD,.SDcols = Name.RM]))]) < min.N, "red", "darkgreen"),
           face = "bold"))
-    
-    # # Detect index of Ref.Outliers and Add a color column, already done in GDE, not necessary
-    # df <- df %>% mutate(outlier = ifelse(abs(RM_DELTA) > Max.Ref.Bias, paste0("> ", Max.Ref.Bias), paste0("≤ ", Max.Ref.Bias)))
-    # i.Ref.outliers <- df[outlier == paste0("> ", Max.Ref.Bias), which = TRUE]
     
     # Outliers
     diff_time_plot <- 
@@ -169,7 +149,7 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
     }
     diff_time_plot <- diff_time_plot +
       ggplot2::geom_hline(yintercept = 0, color = "red", linewidth = 1) +
-      ggplot2::geom_hline(yintercept = c(-Max.Ref.Bias, Max.Ref.Bias), color = "orange", linetype = "dashed", linewidth = 0.5) +
+      ggplot2::geom_hline(yintercept = c(-Max.Ref.Bias, Max.Ref.Bias), color = "orange", linetype = "dashed", linewidth = 0.7) +
       ggplot2::ylim(-6, 6) +
       ggplot2::labs(
         title = paste("(RM1 - RM2) over time -", Instrument, Pollutant),
@@ -179,8 +159,8 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
                         x = min(df$date), y = 5.5,
                         label = paste(
                           "Points > |", Max.Ref.Bias, "|: ", length(which(df$outlier == paste0("> ", Max.Ref.Bias))),
-                          "/", nrow(df),
-                          " (", round(length(which(df$outlier == paste0("> ", Max.Ref.Bias))) / nrow(df) * 100, digit = 0), "%)"),
+                          "/", nrow(df[is.finite(rowSums(df[,.SD,.SDcols = Name.RM]))]),
+                          " (", round(length(which(df$outlier == paste0("> ", Max.Ref.Bias))) / nrow(df[is.finite(rowSums(df[,.SD,.SDcols = Name.RM]))]) * 100, digit = 0), "%)"),
                         hjust = 0, vjust = 1,
                         color = "red", size = 4, fontface = "bold") +
       theme_minimal() +
@@ -193,38 +173,32 @@ create_reference_plots <- function(df, Type, Max.Ref.Bias = 2, Unit, Name.CM = N
       ggplot2::labs(
         title = paste("(RM1 - RM2) distribution -", Instrument, Pollutant),
         x = paste0("RM1 - RM2 in ",Unit), y = "Counts") +
-      # Unica annotazione
-      # Media con colore in base al valore (verde se >= 0.5, verde se < 0.5 - come richiesto)
+      # Colored mean.diff according to Mean.diff (red if > Mean.diff, green if <= Mean.diff )
       ggplot2::annotate("text",
                         x = -Inf, y = Inf,
-                        label = paste("Mean =", mean_diff, " ", Unit),
+                        label = paste("Mean =", mean.diff, " ", Unit),
                         hjust = -0.1, vjust = 1.5,
-                        color = ifelse(mean_diff >= 0.5, "red", "darkgreen"),
+                        color = ifelse(mean.diff > Mean.diff, "red", "darkgreen"),
                         size = 3.5, fontface = "bold") +
-      # ubsRM con colore in base al valore (rosso se >=1, verde se <1)
+      # Colored ubsRM according to con colore in base al valore (rosso se >=1, verde se <1)
       ggplot2::annotate("text",
                         x = -Inf, y = Inf,
-                        label = paste0("ubsRM =", ubs_rm, " ", Unit, " (outliers not discarded)"),
+                        label = paste0("ubsRM =", ubs.rm, " ", Unit, " (outliers not discarded)"),
                         hjust = -0.1, vjust = 3,
-                        color = ifelse(ubs_rm >= 1, "red", "darkgreen"),
+                        color = ifelse(ubs.rm > Max.ubsRM, "red", "darkgreen"),
                         size = 3.5, fontface = "bold") +
-      # Linee verticali
-      ggplot2::geom_vline(xintercept = mean_diff, color = "black", linetype = "solid", linewidth = 1) +
+      # Vertical line
+      ggplot2::geom_vline(xintercept = mean.diff, color = "black", linetype = "solid", linewidth = 1) +
       theme_minimal()
     
     
-    # Combina i plot
+    # Combined plot to return
     combined_plot <- gridExtra::grid.arrange(ref_time_plot, ref_hist_plot, diff_time_plot, diff_hist_plot, ncol = 2, nrow = 2)
     
     return(list(
-      ref_time_plot  = ref_time_plot,
-      ref_hist_plot  = ref_hist_plot,
-      diff_time_plot = diff_time_plot,
-      diff_hist_plot = diff_hist_plot,
       combined_plot  = combined_plot,
-      ubs_rm         = ubs_rm,
-      mean_diff      = mean_diff #,
-      # i.Ref.outliers = i.Ref.outliers
+      ubs.rm         = ubs.rm,
+      mean.diff      = mean.diff #,
     ))
   } # Add plots in case of Indicative and On-going test
 }
@@ -326,7 +300,7 @@ DT_Weighing <- function(DT, name.date, name.V1, name.V2, Lag, outliers = FALSE, 
   return(list(Data = Data, DT.weighted = DT.weighted))}
 
 
-# Function calculate_uncertainty_bins to group candidate measurements and reference measurements per bin
+# Function calculate_uncertainty_bins to group candidate measurements and reference measurements per bin ###################################### DELETE NO MORE USED ################################################################################
 #' @param df (mandatory) dataframe or data.table with data measurements. it shall include columns: RM, RM1/RM2 and CM1/CM2.
 #' @param Type charater vector, default is Type. Executing this function is only valid if Type == "Fixed Type Testing"
 #' @param bin_width 8optional), integer, default value is 5. Number of lags used to compute ubSRM and UbsCM versus reference
@@ -372,8 +346,8 @@ calculate_uncertainty_bins <- function(df, bin_width = 10, Type = "Fixed Type Te
 #' @param Unit (mandatory) character vector, unit of measurements
 #' @param bin_width (mandatory) numeric, width per bin used to compute df_ubs
 #' @param min.Count (optional) numeric default value is 4. Minimum count per bin for considering the bin as valid
-#' @return 2 ggplots with  ubsRM and ubsCM vs reference concentrationa 
-create_uncertainty_plots <- function(df_ubs, Instrument, Pollutant, Unit, bin_width = 10, min.Count = 4, SelectDQO, LV.Interval = 0.3) {
+#' @return 2 ggplots with  ubsRM and ubsCM vs reference concentration
+ubs_plots <- function(df_ubs, Instrument, Pollutant, Unit, bin_width = 10, min.Count = 4, SelectDQO, LV.Interval = 0.3) {
   
   # Limits
   y_max <- max(df_ubs$ubs.x, df_ubs$ubs.y, na.rm = TRUE)
@@ -462,7 +436,7 @@ create_uncertainty_plots <- function(df_ubs, Instrument, Pollutant, Unit, bin_wi
 #' @param thr_high.rel (optional) Numeric value for relative low threshold of outliers (default: 25%)
 #' @param min.N (optional) Numeric value for the minimum values of data with valid Name.CM and Name.RM measurement data
 #' @return A list containing ggplot2 objects with CM analysis plots and summary statistics
-#' @examples create_cm_analysis_plots(df_Fidas200_PM25)
+#' @examples cm_analysis_plots(df_Fidas200_PM25)
 #' @details This function creates comprehensive analysis plots for CM (Candidate Method)
 #'          data comparison with RM (Reference Method). It handles both type testing
 #'          (with RM1/RM2) and ongoing verification Types.
@@ -505,7 +479,7 @@ create_cm_analysis_plots <- function(df,
     df_filtered <- df[is.finite(rowSums(df[,.SD,.SDcols = c(Name.CM, Name.RM)]))]
     
     # Count how many rows are discarded
-    original_rows  <- nrow(df)
+    original_rows  <- nrow(df)################################################################################################################################################
     filtered_rows  <- nrow(df_filtered)
     discarded_rows <- original_rows - filtered_rows
     
@@ -834,7 +808,7 @@ linearity_check <- function(df,
     
     # 3) LINEARITY STATUS
     pass_r2 <- round(r2, 2)     >= r2_threshold
-    pass_sd <- round(sd_rel, 1) <= sd_rel_threshold
+    pass_sd <- round(sd_rel, 3) <= sd_rel_threshold
     
     # Get serial number
     SN_col <- if (cm_col == "CM1") "SN1" else "SN2"
@@ -1016,7 +990,7 @@ linearity_check <- function(df,
 #' @param variable.ubss logical, default is FALSE. If FALSE, ubss is used as constant random standard uncertainties for all yis sensor values. If TRUE ubss given in Mat and is used for each sensor value
 #' @param perc.ubss numeric default value NULL. Use to compute ubss in case variable.ubss is TRUE as Mat$ubss = perc.ubss * Mat[["yis"]] 
 #' @param Add.ubss logical, default is TRUE If TRUE ubss is added to  Mat$Rel.RSS. If FALSE ubss is not added to  Mat$Rel.RSS.
-#' @param Fitted.RS Optional, logical, default is FALSE. If TRUE the square residuals (RSi) are fitted using a General Additive Model, provided that the null hypothesis of no correlation between xis and RSi is rejected when the probability is lower than 0.05, (p < 0.05)
+#' @param Fitted.RS (optional), logical, default is FALSE. If TRUE the square residuals (RSi) are fitted using a General Additive Model, provided that the null hypothesis of no correlation between xis and RSi is rejected when the probability is lower than 0.05, (p < 0.05)
 #' @param Forced.Fitted.RS logical, default is FALSE. If TRUE even if the variance of residuals is constant, RS is Gam fitted.
 #' @param Plot_Line (optional) logical, default is FALSE If TRUE the calibration line is added using par(new=TRUE) to an existing scatterplot
 #' @param Verbose logical, default is FALSE. If TRUE messages are displayed during execution.
@@ -1105,7 +1079,7 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
     # Looking for and discarding influential points for OLS and any other model
     OLS.Outliers <- performance::check_outliers(OLS)
     if(length(which(OLS.Outliers)) > 0){
-      Mat <- Mat[-which(OLS.Outliers)]
+      #Mat <- Mat[-which(OLS.Outliers)] #################################################### Think about resuming the outliers discarding ###############################################
       OLS <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
       if(Verbose){
         print(OLS.Outliers)
@@ -1274,6 +1248,16 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
       b1      <- Lin.Reg[Model == Regression]$b1
       ub1     <- Lin.Reg[Model == Regression]$ub1
       covb0b1 <- Lin.Reg[Model == Regression]$covb0b1
+      Scatter <- ggplot2::ggplot(data = Mat, aes(x=xis, y=yis, color = Campaign, shape = SN))+
+        geom_point(size = 2) + 
+        scale_color_brewer(palette = "Set1") +  # Choose a color palette
+        scale_shape_manual(values = c(16, 17, 15, 18)) +  # Custom shapes (16=square, 17=circle, etc.)
+        labs(color = "Campaign", shape = "SN",
+             x = "Reference values, RM",
+             y = "Candidate values, CMi",
+             title = paste0("Orthogonal regression, all SNi and sites, y = ", b0, " + ", b1, " x")) +
+        geom_abline(intercept = b0, slope = b1, color = "red", linetype = "solid") +  # Add line
+        theme_minimal()
     } else {
       return(
         futile.logger::flog.error("[U_orth_DF] unknown regression type. 
@@ -1335,20 +1319,40 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
       Mat[, RS := rep(RSS/(nb-2), times = .N)]}
     
     # Plotting RS
+    # See https://stackoverflow.com/questions/17093935/r-scatter-plot-symbol-color-represents-number-of-overlapping-points
+    
+    ## Use densCols() output to get density at each point
+    x <- grDevices::densCols(Mat[[Versus]],sqrt(Mat$residuals^2), colramp=colorRampPalette(c("black", "white")))
+    Mat$dens <- col2rgb(x)[1,] + 1L
+    ## Map densities to colors
+    cols <-  colorRampPalette(c("#000099", "#00FEFF", "#45FE4F", 
+                                "#FCFF00", "#FF9400", "#FF3100"))(256)
+    
+    Mat$col <- cols[Mat$dens]
+    Resid <- ggplot2::ggplot(data = Mat, aes(x=.data[[Versus]], y=abs(residuals), color = col)) + 
+      geom_point() +
+      scale_color_identity() +  # Use the 'col' column as-is for colors
+      labs(x = "Reference values, RM",
+           y = paste0("Residuals of ", Regression, " model with ubsRM in red solid line"),
+           title = paste0("Residuals for ", Regression, " model with ubsRM in red solid line, all SNi")) +
+      theme_minimal() + 
+      geom_line(aes(x= .data[[Versus]], y = sqrt(RS), color = "red"))
+    # Adding ubsRM value
+    if(!Fitted.RS){
+      Resid <- Resid + 
+        annotate("text",
+                 x = 0.96 * diff(range(Mat$xis)),
+                 y = sqrt(unique(Mat$RS)) + 0.04 *  diff(range(abs(Mat$residuals))),
+                 label = paste("RSS/(n-2) = ", round(sqrt(unique(Mat$RS)), digits = 2)),
+                 color = "red",
+                 size = 4)
+    }
     if (Verbose) {
-      # See https://stackoverflow.com/questions/17093935/r-scatter-plot-symbol-color-represents-number-of-overlapping-points
-      
-      ## Use densCols() output to get density at each point
-      x <- grDevices::densCols(Mat[[Versus]],sqrt(Mat$residuals^2), colramp=colorRampPalette(c("black", "white")))
-      Mat$dens <- col2rgb(x)[1,] + 1L
-      ## Map densities to colors
-      cols <-  colorRampPalette(c("#000099", "#00FEFF", "#45FE4F", 
-                                  "#FCFF00", "#FF9400", "#FF3100"))(256)
-      
-      Mat$col <- cols[Mat$dens]
-      
-      plot(sqrt(Mat$residuals^2) ~ get(Versus), data = Mat, type = "p", col = col, xlab = Versus, main = "Square of residuals versus reference values for RSS")
-      lines(Mat[[Versus]],sqrt(Mat[["RS"]]), col = "red", xlab = Versus); grid()}
+      plot(Resid)
+      # # in base graphcis
+      # plot(abs(Mat$residuals) ~ get(Versus), data = Mat, type = "p", col = col, xlab = Versus, main = "Square of residuals versus reference values for RSS")
+      # lines(Mat[[Versus]],sqrt(Mat[["RS"]]), col = "red", xlab = Versus); grid()
+    }
     
     # Checking if RSS^2 - Mat$ubsRM^2 + Mat$ubss^2 < 0 that results in an error using sqrt(RSS^2 - Mat$ubsRM^2) of the rs.RSS. Replacing with 0
     # and Calculating parameters for modified Target diagram Rel.bias and Rel.RSS
@@ -1405,416 +1409,22 @@ U_orth_DF <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c(
       ft
     }
     calib <- list(mo = mo, sdo = sdo, mm = mm, sdm = sdm, b1 = b1, ub1 = ub1, b0 = b0, ub0 = ub0, RSS = RSS, rmse = rmse,
-                  mb2 = mbe, Correlation = Correlation, nb = nb, Mat = Mat, Fitted.RS = Fitted.RS, Regression = Regression, Add.ubss = Add.ubss, m2 = m2,
-                  OLS.Models = OLS.Models, Lin.Reg = Lin.Reg)
-    if(Verbose){ # elements created only if Verbose = TRUE
-      for(Element in c("OLS", "OLS.Outliers", "OLS.Diagnostic", "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Quantile", "Deming", "TLS","Lin.Reg")) calib[[Element]] <- get(Element) }
+                  mb2 = mbe, Correlation = Correlation, nb = nb, Mat = Mat, Fitted.RS = Fitted.RS, Regression = Regression, Add.ubss = Add.ubss, m2 = m2)
+    for(Element in c("OLS", "OLS.Outliers", "OLS.Diagnostic", "OLS.Models",
+                     "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Quantile", "Deming", "TLS","Lin.Reg", "Scatter", "Resid")){
+      if(Element %in% ls()) calib[[Element]] <- get(Element) else calib[[Element]] <- NA
+    }
   } else {
     cat("Mat is empty. Returning NAs.")
     calib <- list(mo = NA,sdo = NA, mm = NA,sdm = NA, b1 = NA, ub1 = NA, b0 = NA, ub0 = NA, RSS = NA,rmse = NA, mbe = NA, Correlation = NA, nb = NA,
                   Mat = NA, Regression = Regression, Add.ubss = Add.ubss, m2 = NA,
-                  OLS.Models = NA, Lin.Reg = NA)
-    if(Verbose){ # elements created only if Verbose = TRUE
-      for(Element in c("OLS", "OLS.Diagnostic", "Lin.Reg")) calib[[Element]] <- NA}}
+                  OLS.Models = NA, Lin.Reg = NA, Scatter = NA, Resid = NA)
+    for(Element in c("OLS", "OLS.Outliers", "OLS.Diagnostic", "OLS.Models",
+                     "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Quantile", "Deming", "TLS","Lin.Reg", "Scatter", "Resid")) calib[[Element]] <- NA}
   
   # returning list of info
   return(calib)
 }
-
-
-U_orth_DF.2 <- function(Mat, Versus = NULL, Regression = "TLS", Tested.Models = c("OLS", "OLS.Weighing", "Quantile", "WLS_OLS", "WLS_ubss", "Deming", "TLS"),
-                        variable.ubsRM = FALSE, ubsRM = NULL, perc.ubsRM = 0.02,
-                        variable.ubss  = FALSE, ubss  = NULL, perc.ubss  = NULL, Add.ubss = TRUE,
-                        Fitted.RS = FALSE, Forced.Fitted.RS = FALSE, ID = NULL,
-                        Verbose = FALSE, Plot, Plot_Line = FALSE) {
-  
-  #checking that Mat is not empty
-  if (exists("Mat") && !is.null(Mat) && nrow(Mat) > 0) {
-    
-    # Setting Versus with xis if NULL
-    if (is.null(Versus)) Versus <- "xis"
-    stopifnot(Versus %in% names(Mat))
-    
-    # checking that at least x and y are given
-    Missing.Cols <- setdiff(c("case", "Date", Versus, "yis","ubsRM", "ubss"), names(Mat))
-    stopifnot(all(!c(Versus, "yis") %in% Missing.Cols))
-    # Checking if ubsRM and ubss are provided in Mat
-    ubsRM.Mat <- !"ubsRM" %in% Missing.Cols
-    ubss.Mat  <- !"ubss"  %in% Missing.Cols
-    #colnames(Mat) <- c("case", "Date", Versus, "yis","ubsRM", "ubss")[1:length(colnames(Mat))]
-    Additional.Cols <- setdiff(names(Mat), c("case", "Date", Versus, "yis","ubsRM", "ubss"))
-    if(Verbose && length(Additional.Cols) >0){
-      futile.logger::flog.warn(paste0("[U_orth_DF] Mat includes additional columns that are discarded: ", paste(Additional.Cols, collapse = ", ")))
-      Mat[, (Additional.Cols) := NULL]}
-    
-    # Convert Mat to data.table if needed, order on versus, ordering on Versus
-    if (!data.table::is.data.table(Mat)) Mat <- data.table(Mat)
-    data.table::setkeyv(Mat, Versus)
-    
-    # Filtering for the rows with complete Versus and yis data only
-    Mat <- Mat[is.finite(rowSums(Mat[, c(Versus,"yis"), with = FALSE]))]
-    nb <- nrow(Mat)
-    if (!nb > 5) return(futile.logger::flog.error("[U_orth_DF] Mat does not contains any complete rows with xis and yis"))
-    
-    # Setting ubsRM and ubss in Mat
-    if(!ubsRM.Mat){
-      if (!variable.ubsRM) {
-        stopifnot(!is.null(ubsRM))
-        data.table::set(Mat,  j = "ubsRM", value = rep(ubsRM, nb))
-        if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] u(bs,RM) = ", ubsRM, " constant value."))
-      } else {
-        stopifnot(!is.null(perc.ubsRM))
-        Mat[, ubsRM := perc.ubsRM * Mat[[Versus]]]
-        if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] computing u(bs,RM) as ", 100 * perc.ubsRM," percents of reference data (Mat$xis)."))
-      }
-    } else if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] using u(bs,RM) provided in Mat."))
-    
-    if(!ubss.Mat){
-      if (!variable.ubss) {
-        stopifnot(!is.null(ubss) && !"ubss" %in% names(Mat))
-        data.table::set(Mat,  j = "ubss", value = rep(ubss, nb))
-        if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] u(bs,s) = ", ubss, " constant value."))
-      } else {
-        stopifnot(!is.null(perc.ubss))
-        Mat[, ubss := perc.ubss * Mat$yis]
-        if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] computing u(bs,s) as ", 100 * perc.ubss," percents of sensor data (Mat$xis)."))
-      }
-    } else if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] using u(bs,s) provided in Mat."))
-    
-    # Fitting Linear Models ###
-    # Ordinary least square Linear Regression, OLS with outliers being discarded ###
-    Formula <- as.formula(paste0("yis ~ ", Versus))
-    OLS     <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    # Looking for and discarding influential points
-    OLS.Outliers <- performance::check_outliers(OLS)
-    if(length(which(OLS.Outliers)) > 0){
-      Mat <- Mat[-which(OLS.Outliers)]
-      OLS <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-      if(Verbose){
-        print(OLS.Outliers)
-        futile.logger::flog.info(paste0("[U_orth_DF] Rows of Mat: ", paste(which(OLS.Outliers), collapse = ", "),
-                                        " discarded as influential using Cook's distance. OLs update without influential data"))}
-    } else if(Verbose) futile.logger::flog.info(paste0("[U_orth_DF] no data Mat: discarded as influential using Cook's distance of OLS."))
-    
-    # checking assumptions of linear models
-    if(Verbose){
-      cat("Checking heteroskedascity, homogenity of variance of residuals for OLS model\n")
-      print(performance::check_heteroskedasticity(OLS))
-      
-      cat("Checking autocorrelation of residuals for OLS model\n")
-      print(performance::check_autocorrelation(OLS)) # check_autocorrelation not existing for Weighted regression line
-      
-      cat(paste0("Plotting heteroskedascity, homogenity of variance of residuals for ", Regression, " model"))
-      plot(performance::check_model(OLS))
-      OLS.Diagnostic <- rempsyc::nice_table(rempsyc::nice_assumptions(OLS), col.format.p = 2:4)
-      OLS.Diagnostic}
-    
-    # Ordinary Least square with  weighing according to scattering in 10 lags over the xis range
-    OLS.Weighing <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear", Weighted = TRUE, Auto.Lag = TRUE,  Plot_Line = Plot_Line, Verbose = Verbose)
-    
-    # Quantile regression at the median, no weighing per lags
-    Quantile <- Cal_Line(x = Mat$xis, y = Mat$yis, Mod_type = "Linear.Robust", Probs = 0.5, Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose, f_coef1 = "%.1f", f_coef2 = "%.2f")
-    
-    # Common parameters for Delta tools and TLS
-    nb  <- nrow(Mat)
-    mo  <- mean(Mat[[Versus]])
-    mm  <- mean(Mat[["yis"]])
-    sdo <- sd(Mat[[Versus]])
-    sdm <- sd(Mat[["yis"]])
-    
-    # Fitting all other regressions: TLS (orthogonal regression), Deming, WLS
-    # Fitting TLS with standard.errors for coefficients using 1000 bootstrap samples
-    # The Delta of Deming (ratio of ubss/ubsRM for orthogonal regression is 1 (equal variance for x and y)
-    TLS  <- Cal_Line(x = Mat$xis, y = Mat$yis, s_y = resid(OLS), Mod_type = "TLS", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    
-    # Fitting Deming regression, it takes care of constant or variable Errors on x and y
-    if (!variable.ubsRM && !variable.ubss) {
-      
-      Delta <- (ubss/ubsRM)^2
-      if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with constant u(bs,RM) and u(bs,s).")
-      Deming  <- MethComp::Deming(x = Mat[[Versus]], y = Mat[["yis"]], vr = Delta, boot = TRUE, keep.boot = FALSE)
-      if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with constant u(bs,RM) and u(bs,s).")
-    } else {
-      if (Verbose) futile.logger::flog.warn("[U_orth_DF] \"Deming\" regression with variable u(bs,RM) and/or u(bs,s).")
-    }
-    Deming <- Cal_Line(x = Mat$xis, s_x = Mat$ubsRM, y = Mat$yis, s_y = Mat$ubss, Mod_type = "Deming", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    
-    # Fitting WLS regression, y weights are determined from the residuals using the residuals of the OLS model
-    if(!is.null(perc.ubss) && FALSE){ # I added FALSE to be sure that the weights will be computed with the residuals of OLS which give better WLS fitting than with ubsss
-      Mat[, Weights := nb * (Mat$ubss)^-2 / sum(Mat$ubss^-2)]
-    } else Mat[, Weights := nb*resid(OLS)^-2/sum(resid(OLS)^-2)]
-    #WLS <- lm(Formula, data = Mat, weights = Weights)
-    WLS_OLS <- Cal_Line(x = Mat$xis, y = Mat$yis, s_y = resid(OLS), Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    
-    # weights with ubss
-    WLS_ubss <- Cal_Line(x = Mat$xis, y = Mat$yis, s_y = Mat$ubss, Mod_type = "Linear", Weighted = FALSE, Plot_Line = Plot_Line, Verbose = Verbose)
-    
-    # Creating a table with the different models
-    if(is.null(Tested.Models)) Tested.Models <- c("OLS", "OLS.Weighing", "Quantile", "WLS_OLS", "WLS_ubss", "Deming", "TLS")
-    Tested.Models <- Tested.Models[Tested.Models %in% ls()]
-    if(length(Tested.Models) > 0){
-      for(Model in Tested.Models){
-        if (Model %in% c("OLS", "WLS_OLS", "WLS_ubss","OLS.Weighing")){
-          st.errors <- sqrt(diag(vcov(get(Model))))
-          b0  <- round(coef(get(Model))[1], 2)
-          ub0 <- round(st.errors[1], 2)
-          b1  <- round(coef(get(Model))[2], 3)
-          ub1 <- round(st.errors[2], 3)
-          covb0b1 <- vcov(get(Model))[1,2]
-          R2 <-  round(broom::glance(get(Model))$r.squared,3)
-        } else if (Model == "Quantile"){
-          # getting coefficients and standard error https://cran.r-project.org/web/packages/quantreg/vignettes/rq.pdf
-          Summary <- summary(Quantile,se = "nid", cov = TRUE)
-          b0  <- round(Summary$coefficients[,1][1], 2)
-          ub0 <- round(Summary$coefficients[,2][1], 2)
-          b1  <- round(Summary$coefficients[,1][2], 3)
-          ub1 <- round(Summary$coefficients[,2][2], 3)
-          R2 = round(R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5),3)
-          covb0b1 <- Summary$cov[1, 2] # chatGPT asked
-        } else if (Model == "Deming"){
-          if (!variable.ubsRM && !variable.ubss) {
-            b0  <- round(Deming$coefficients[1], 2)
-            ub0 <- round(sqrt(diag(Deming$variance)[1]), 2)
-            b1  <- round(Deming$coefficients[2], 3)
-            ub1 <- round(sqrt(Deming$variance[2,2]), 3)
-            covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 3)
-          } else {
-            b0  <- round(coef(Deming)[1], 2)
-            ub0 <- round(sqrt(diag(Deming$variance)[1]), 2)
-            b1  <- round(coef(Deming)[2], 3)
-            ub1 <- round(sqrt(diag(Deming$variance)[2]), 3)
-            covb0b1 <- round(sqrt(diag(Deming$variance)[2]), 3)}
-          R2 = NA
-        } else if (Model == "TLS"){
-          b0  <- round(coef(TLS)[1], 2)
-          ub0 <- round(TLS$fit.MethComp[1,2], 2)
-          b1  <- round(coef(TLS)[2], 3)
-          ub1 <- round(TLS$fit.MethComp[2,2], 3)
-          # ub0 and ub1 are computed by 1000 bootstrap (as in deming::Deming) while in the GDE, equations are given (see below). The values ub0  and ub1 are different when computed by the two methods
-          covb0b1 <- cov(TLS$fit.MethComp.COV)[1,2]
-          
-          # as in annex b of Guide for The Demonstration of Equivalence
-          # Syy <- sum((Mat[["yis"]] - mm)^2)
-          # Sxy <- sum((Mat[[Versus]] - mo) * (Mat[["yis"]] - mm))
-          # Sxx <- sum((Mat[[Versus]] - mo)^2)
-          # b1  <- (Syy - Sxx + sqrt((Syy- Sxx)^2 + 4*Sxy^2))/(2*Sxy)
-          # b0  <- mm - b1 * mo
-          # ub1 <- sqrt((Syy - (Sxy^2/Sxx))/((nb-2)*Sxx))
-          # ub0 <- sqrt(ub1^2 * sum(Mat[[Versus]]^2)/nb)
-          
-          # https://stats.stackexchange.com/questions/86453/coefficient-of-determination-of-a-orthogonal-regression/180173
-          # R2= 1- SSres/SStot
-          # where SSres is the sum of squares of residuals, and SStot is the total sum of squares. To apply it in my case I considered:
-          # SSres=bid((xi,yi);(x^,y^))B2 where d((xi,yi);(x^,y^)) is the distance of point (xi,yi) to the best fit line.
-          # and SStot=bd((xi,yi);(xm,ym))B2 where xm is the mean of all the xi and ym is the mean of all the yi.
-          SSres <- pracma::odregress(Mat[["xis"]], Mat[["yis"]])$ssq
-          SStot <- sum((Mat[["yis"]] - mm)^2 + (Mat[[Versus]] - mo)^2)
-          R2 <- round(1 - SSres/SStot,3)
-        }
-        if(exists("Lin.Reg")){
-          Lin.Reg <- data.table::rbindlist(list(Lin.Reg, list(Model = Model, b0 = b0, ub0 = ub0, b1 = b1, ub1 = ub1, R2 = R2, covb0b1 = covb0b1)), use.names = T, fill =T)
-        } else {
-          Lin.Reg <- data.table::data.table(Model = Model, b0 = b0, ub0 = ub0, b1 = b1, ub1 = ub1, R2 = R2, covb0b1 = covb0b1)
-        }
-      }
-    }
-    
-    # Selecting regression type for computing U and Ur
-    m2 = get(Regression)
-    b0  <- Lin.Reg[Model == Regression]$b0
-    ub0 <- Lin.Reg[Model == Regression]$ub0
-    b1  <- Lin.Reg[Model == Regression]$b1
-    ub1 <- Lin.Reg[Model == Regression]$ub1
-    if (Regression == "TLS") {
-      # as in annex b of Guide for The Demonstration of Equivalence
-      Syy <- sum((Mat[["yis"]] - mm)^2)
-      Sxy <- sum((Mat[[Versus]] - mo) * (Mat[["yis"]] - mm))
-      Sxx <- sum((Mat[[Versus]] - mo)^2)
-      b1  <- (Syy - Sxx + sqrt((Syy- Sxx)^2 + 4*Sxy^2))/(2*Sxy)
-      b0  <- mm - b1 * mo
-      ub1 <- sqrt((Syy - (Sxy^2/Sxx))/((nb-2)*Sxx))
-      ub0 <- sqrt(ub1^2 * sum(Mat[[Versus]]^2)/nb)
-    } else if (Regression == "Deming"){
-      if (!variable.ubsRM && !variable.ubss) {
-        b0  <- m2[1] 
-        b1  <- m2[2]
-        ub0 <- m2[1,2]
-        ub1 <- m2[2,2]
-        browser()
-        # other computation of standard errors:
-        # https://bookdown.org/ccolonescu/RPoE4/heteroskedasticity.html
-        ub0 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[1, "Std. Error"]
-        ub1 <- lmtest::coeftest(OLS, vcov. = car::hccm(OLS, type = "hc1"))[2, "Std. Error"]
-      } else {
-        b0  <- coef(m2)[1] 
-        b1  <- coef(m2)[2]
-        ub1 <- sqrt(diag(m2$variance)[2])
-        ub0 <- sqrt(diag(m2$variance)[1])
-      }
-    } else if (Regression == "Quantile"){
-      
-      # getting coefficients and standard error https://cran.r-project.org/web/packages/quantreg/vignettes/rq.pdf
-      Summary <- summary(Quantile,se = "nid")
-      b0  <- paste0(round(Summary$coefficients[,1][1], 2))
-      ub0 <- paste0(round(Summary$coefficients[,2][1], 2))
-      b1  <- paste0(round(Summary$coefficients[,1][2], 3))
-      ub1 <- paste0(round(Summary$coefficients[,2][2], 3))
-      R2 = R1_rq(Mat[[Versus]], Mat$yis, probs = 0.5)
-      
-    } else if (Regression %in% c("OLS", "OLS.Weighing","WLS_OLS","WLS_ubss")) {
-      
-      # Parameters of regression lines
-      b0  <- coef(m2)[1] 
-      b1  <- coef(m2)[2]
-      st.errors <- sqrt(diag(vcov(m2)))
-      ub0 <- st.errors[1]
-      ub1 <- st.errors[2]
-      
-    } else return(futile.logger::flog.error("[U_orth_DF] unknown regression type. Only \"OLS\", \"OLS.Weighing\", \"WLS\", , \"Quantile\", \"Deming\" (Delta is ubss^2/ubsRM^2) or \"TLS\" (Delta is 1) regressions can be used"))
-    
-    # Squares of Residuals and bias (vector of values)
-    Mat[, fitted    := b0 + b1 * Mat[[Versus]]]
-    Mat[, bias      := (b0 + (b1 - 1) * Mat[[Versus]])] # Bias from identity line x
-    Mat[, residuals := Mat[["yis"]] - fitted]
-    Mat[, RS        := residuals^2]
-    
-    # Regression statistics for Target Diagram (see delta tool user guide)
-    rmse  <- sqrt(sum(Mat[["residuals"]]^2) / (nb - 2 - 1)) # the degrees of freedom are n - k (number of coeffieint of the regression line: 2) - 1
-    mbe   <- mean(Mat[["yis"]] - Mat[[Versus]])
-    mae   <- mean(abs(Mat[["yis"]] - Mat[[Versus]]))
-    CRMSE <- sqrt(mean(((Mat[["yis"]] - mm) - (Mat[[Versus]] - mo))^2))
-    NMSD  <- (sd(Mat[["yis"]]) - sd(Mat[[Versus]])) / sd(Mat[[Versus]])
-    Correlation <- cor(Mat[[Versus]],Mat[["yis"]])
-    
-    # testing for heterosKedasticity with Breusch Pagan test, the two packages gives the same p.value
-    # https://www.r-bloggers.com/2016/01/how-to-detect-heteroscedasticity-and-rectify-it/
-    Breusch.Pagan     <- lmtest::bptest(formula = OLS, studentize = T)
-    Breusch.Pagan     <- skedastic::breusch_pagan(mainlm = OLS, koenker = TRUE, statonly = FALSE)
-    
-    # fitting the residuals for RSS/(n-2) computation
-    if (Verbose){
-      futile.logger::flog.info("[U_orth_DF] Breusch-Pagan test: null hypothesis means constant variance of residuals along x axis (homoskedasticity). 
-                                     The null hyposthesis is rejected if p-value of the Breusch-Pagan test < 0.05 (heterosKedasticity)")  
-      futile.logger::flog.info(paste0("[U_orth_DF] Finally, p-value =  ", format(Breusch.Pagan$p.value, digits = 4)))
-      futile.logger::flog.info(paste0("[U_orth_DF] Argument \"Fitted.RS\" in U_orth_DF(): ", Fitted.RS, ". If FALSE the square residuals are not fitted and constant RSS is computed."))
-      futile.logger::flog.info(paste0("[U_orth_DF] Argument \"Forced.Fitted.RS\" in U_orth_DF(): ", Forced.Fitted.RS,
-                                      ". If TRUE the square residuals are fitted, even if the variance of residuals along x axis is constant."))} 
-    if (Fitted.RS && (Breusch.Pagan$p.value < 0.05 || Forced.Fitted.RS)) {
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] The variance of residuals is not constant or is set to be fitted. RSi are calculated after applying a General Additive Model fitting.")
-      # Fitting with gam Vs Versus ("Xi")
-      # if any y value is zero getting Warning: Error in eval: non-positive values not allowed for the 'gamma' family (we had 0.5 % of min(xis) to avoid this
-      
-      Formula <- as.formula(paste0("sqrt(RS) ~ s(", Versus, ")"))
-      z <- mgcv::gam(Formula, data = Mat,family=Gamma(link=log) )
-      
-      # # see https://stats.stackexchange.com/questions/270124/how-to-choose-the-type-of-gam-parameters
-      # z <- mgcv::gam(Formula, data = Mat, method = "REML", select = TRUE)
-      
-      Mat[, RS := fitted(z)^2]
-      # Sum of squares of Residuals (one constant value)
-      RSS     <- sum(Mat$RS)
-      
-      if (Verbose) print(summary(z))
-      
-    } else {
-      
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] The variance of residuals is constant along x axis or Fitted.RS is set to FALSE. Constant RSS is calculated.")
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] RSS is calculated with equation for constant residuals.")
-      # Sum of squares of Residuals (one constant value)
-      RSS     <- sum(Mat$RS)
-      if (Verbose) futile.logger::flog.info(paste0("[U_orth_DF] RSS is the square root of sum of squares of Residuals divided by n - 2 = ", format(sqrt(RSS/(nb-2)), digit = 3)))
-      # No need to fit a line in this case
-      Mat[, RS := rep(RSS/(nb-2), times = .N)]}
-    
-    # Plotting RS
-    if (Verbose) {
-      # See https://stackoverflow.com/questions/17093935/r-scatter-plot-symbol-color-represents-number-of-overlapping-points
-      
-      ## Use densCols() output to get density at each point
-      x <- grDevices::densCols(Mat[[Versus]],sqrt(Mat$residuals^2), colramp=colorRampPalette(c("black", "white")))
-      Mat$dens <- col2rgb(x)[1,] + 1L
-      ## Map densities to colors
-      cols <-  colorRampPalette(c("#000099", "#00FEFF", "#45FE4F", 
-                                  "#FCFF00", "#FF9400", "#FF3100"))(256)
-      
-      Mat$col <- cols[Mat$dens]
-      
-      plot(sqrt(Mat$residuals^2) ~ get(Versus), data = Mat, type = "p", col = col, xlab = Versus, main = "Square of residuals versus reference values for RSS")
-      lines(Mat[[Versus]],sqrt(Mat[["RS"]]), col = "red", xlab = Versus); grid()}
-    
-    # Checking if RSS^2 - Mat$ubsRM^2 + Mat$ubss^2 < 0 that results in an error using sqrt(RSS^2 - Mat$ubsRM^2) of the rs.RSS. Replacing with 0
-    # and Calculating parameters for modified Target diagram Rel.bias and Rel.RSS
-    if (Add.ubss) neg.RSS <- which(Mat$RS - Mat[["ubsRM"]]^2 + Mat[["ubss"]]^2 < 0) else neg.RSS <- which(Mat$RS - Mat[["ubsRM"]]^2 < 0)
-    if (length(neg.RSS) > 0) {
-      if (Verbose) futile.logger::flog.warn("[U_orth_DF] Some \"RS - ubsRM^2\" are negative and square roots cannot be calculated.")
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] ubsRM maybe too high and should be corrected.")
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] The \"RS - ubsRM^2\" that are negative will be set to 0 when computing uncertainties.")
-      
-      Mat[neg.RSS,  Rel.RSS := 0]
-      Positives <- setdiff(1:nb,neg.RSS)
-      
-      if (length(Positives) > 0){
-        if (Add.ubss){
-          Mat[Positives, Rel.RSS := 2 * sqrt(Mat[Positives,ubss]^2 + Mat[Positives,RS] - Mat[Positives,ubsRM]^2) / Mat[Positives][[Versus]]]
-        } else Mat[Positives, Rel.RSS := 2 * sqrt(Mat[Positives,RS] - Mat[Positives,ubsRM]^2) / Mat[Positives][[Versus]]]}
-    }  else {
-      # mat$RS are not changed and they are already calculated
-      if (Verbose) futile.logger::flog.info("[U_orth_DF] All \"RSS/(nb - 2) or RSi - ubsRM^2\" are positives. ubsRM makes sence.")
-      
-      if (Add.ubss){
-        Mat[, Rel.RSS := 2 * sqrt(Mat$ubss^2 + Mat$RS - Mat$ubsRM^2) / Mat[[Versus]]]
-      } else Mat[, Rel.RSS := 2 * sqrt(Mat$RS - Mat$ubsRM^2) / Mat[[Versus]]]
-    }
-    Mat[, Rel.bias := 2 * (b0/Mat[[Versus]] + (b1 - 1))]
-    
-    #### Calculating uncertainty
-    Mat[, Ur := sqrt(Mat$Rel.bias^2 + Mat$Rel.RSS^2) * 100]
-    Mat[, U  := Mat$Ur / 100 * Mat[[Versus]]]
-    
-    # Indicators for ubsRM
-    Mat[, Max.ubsRM := sqrt((Mat$Rel.RSS * Mat[[Versus]] / 2)^2 + Mat$ubsRM^2 + Mat$bias^2)]
-    Mat[, Max.RSD   := Max.ubsRM / Mat[[Versus]]]
-    
-    # Printing
-    if (Verbose) {
-      cat("--------------------------------\n")
-      cat(sprintf("mean of x   : %.1g +/- %.1g",mo,sdo),"\n")
-      cat(sprintf("Intercept b0: %.4g +/- %.4g",mm,sdm), "\n")
-      cat(sprintf("u of b1     : %.4g +/- %.4g",b1,ub1),"\n")
-      cat(sprintf("u of b0     : %.4g +/- %.4g",b0,ub0), "\n")
-      cat(sprintf("R2: %.4g",Correlation^2), "\n")
-      if (Fitted.RS && (Breusch.Pagan$p.value < 0.05 || Forced.Fitted.RS)) {
-        cat("The residuals are not constant. RS are fitted with a general Additive model (k=5) see in returned matrix. \n")
-      } else {
-        cat("The residuals are constant. RSS is calculated with equation for constant residuals:")
-        cat(sprintf("RSS: %.4g ",Mat$RSS[1]), "\n")}
-      cat(sprintf("RMSE : %.4g ",rmse), "\n")
-      cat(sprintf("mbe  : %.4g ",mbe), "\n")
-      cat(sprintf("CRMSE: %.4g ",CRMSE), "\n")
-      cat(sprintf("NMSD : %.4g ",NMSD), "\n")
-      cat(sprintf("n    : %.4g ",nb), "\n")
-      
-      # Printing the different regression models
-      ft <- flextable::flextable(Lin.Reg)
-      ft
-    }
-    calib <- list(mo = mo, sdo = sdo, mm = mm, sdm = sdm, b1 = b1, ub1 = ub1, b0 = b0, ub0 = ub0, RSS = RSS, rmse = rmse,
-                  mb2 = mbe, Correlation = Correlation, nb = nb, CRMSE = CRMSE, NMSD, Mat = Mat, Fitted.RS = Fitted.RS, Regression = Regression, Add.ubss = Add.ubss, m2 = m2,
-                  Lin.Reg = Lin.Reg)
-    if(Verbose){ # elements created only if Verbose = TRUE
-      for(Element in c("OLS", "OLS.Outliers", "OLS.Diagnostic", "OLS.Weighing", "WLS_OLS", "WLS_ubss", "Quantile", "Deming", "TLS","Lin.Reg")) calib[[Element]] <- get(Element) }
-  } else {
-    cat("Mat is empty. Returning NAs.")
-    calib <- list(mo = NA,sdo = NA, mm = NA,sdm = NA, b1 = NA, ub1 = NA, b0 = NA, ub0 = NA, RSS = NA,rmse = NA, mbe = NA, Correlation = NA, nb = NA, CRMSE = NA, 
-                  NMSD = NA, Mat = NA, Regression = Regression, Add.ubss = Add.ubss, m2 = NA,
-                  Lin.Reg = NA)
-    if(Verbose){ # elements created only if Verbose = TRUE
-      for(Element in c("OLS", "OLS.Diagnostic", "Lin.Reg")) calib[[Element]] <- NA}}
-  
-  # returning list of info
-  return(calib)
-}
-
 
 ### Meas_Function: Function Measurement Function x = f(y) once Calibration function (y = f(x) of sensor is established e.g with Cal_Line ====
 #' This function estimates the x value using a calibration model (Model)
@@ -1872,94 +1482,303 @@ Meas_Function <- function(y, Mod_type, Model, Date = NULL, name.sensor= NA_chara
 # Function to plot uncertainty computed by GDR, 95th percentile of Delta, 2sqrt(sd(Delta)^2 + mean(Delta)^2) and computation according to GUM method
 #' @param CM_Corrected (mandatory) list with 2 elements CM_Corrected and U_orth_DF as computed with reactive function CM_Corrected()
 #' @param Name.CM (mandatory) vector of character vectors, names of column of CM_Corrected$CM_Corrected with data for candidate analysers
-#' @param Model_Type (mandatory) character, it can be Raw, OLS, Deming or Weighted
+#' @param Model_Type (mandatory) character, it can be Raw, OLS, Deming or Weighted. If "Raw", uncertainty according to GDE is computed using "TLS"
 #' @param LV.Interval description
 #' @param min.N (mandatory) integer, default is 30. Minimum number of data within LV ± LV.Interval
 #' @param SelectDQO mandatory list with elements LV and DQO
 #' @param Unit (mandatory) character vector, unit of measurements
-U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 30, SelectDQO, unit.ref) {
+#' @param All.Campaigns (optional) logical default is FALSE. If FALSE uncertainty is computed per Campaign. If TRUE the uncertainty is computed considering all campaigs together
+#' @param Fitted.RS (optional), logical, default is FALSE. If TRUE the square residuals (RSi) are fitted using a General Additive Model, provided that the null hypothesis of no correlation between xis and RSi is rejected when the probability is lower than 0.05, (p < 0.05)
+U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 30, SelectDQO, unit.ref, All.Campaigns = FALSE, Fitted.RS = FALSE, Verbose = FALSE) {
   
-  # if(Model_Type == "Raw"){
-  #   Model_Type <- "Raw"
-  #   Name.CM_DELTA <- paste0(Name.CM, "_DELTA")
-  #   Name.CM_Corrected <- Name.CM
-  # } else if(Model_Type == "OLS"){
-  #   Model_Type <- "OLS"
-  #   Name.CM_DELTA <- paste0(Name.CM, paste0("_",Model_Type,"_DELTA"))
-  #   Name.CM_Corrected <- paste0(Name.CM, "_",Model_Type)
-  # } 
-  # 
-  # Corrected <- melt(
-  #   CM_Corrected$CM_Corrected[,.SD, .SDcols =c("date", "RM", "Campaign", Name.CM, Name.CM_DELTA, Name.CM_Corrected)],
-  #   id.vars = c("date", "RM", "Campaign"),
-  #   measure.vars = list(CM_DELTA = Name.CM_DELTA,
-  #                       CM_Corr  = Name.CM_Corrected,
-  #                       CM       = Name.CM),
-  #   variable.name = "CM_Type",
-  #   value.name = c("CM_DELTA", "CM_Corr", "CM")
-  # )
-  # # Discard incomplete rows of Corrected
-  # Corrected <- Corrected[is.finite(rowSums((Corrected[,.SD,.SDcols = c("RM", "CM")])))]
-  # 
-  # # selected rows for uncertainty, alert message if not enough data
-  # N.LV <- Corrected[RM >= (1 - as.numeric(LV.Interval)) * SelectDQO$LV & RM <= (1 + as.numeric(LV.Interval)) * SelectDQO$LV, which = T]
-  # 
-  # # Computing uncertainty
-  # Corrected[N.LV, U.95th   := quantile(abs(Corrected[N.LV]$CM_DELTA), probs = 0.95, na.rm = T), by=.(Campaign)]
-  # Corrected[N.LV, U.MBE_SD := 2 * sqrt(sd(Corrected[N.LV]$CM_DELTA, na.rm = T)^2 + mean(abs(Corrected[N.LV]$CM_DELTA), na.rm = T)^2)]
+  # Copy data to avoid modfifying arguments in memory
+  Mat <- data.table::copy(CM_Corrected$U_orth_DF$Mat)
   
-  # selected rows for uncertainty, alert message if not enough data
-  N.LV <- CM_Corrected$U_orth_DF$Mat[xis >= (1 - as.numeric(LV.Interval)) * SelectDQO$LV & xis <= (1 + as.numeric(LV.Interval)) * SelectDQO$LV, which = T]
-  if(length(N.LV) < min.N){
-    my_message <- paste0("[GDE_App,Uncertainy] ERROR, missing data at LV, evaluation cannot proceed.")
-    shinyalert::shinyalert(title = Title,
+  # selected rows for uncertainty, alert message if not enough data, counting according to SN1 or SN2 not by SN value itself since analysers may be replaced during field test
+  SN1 <- unique(CM_Corrected$CM_Corrected$SN1)
+  SN2 <- unique(CM_Corrected$CM_Corrected$SN2)
+  Mat[, SNi := ifelse(SN %in% SN1, "SN1", "SN2")]
+  
+  if(All.Campaigns){
+    
+    # Per site and per SNi
+    Lengths <- Mat[xis >= (1 - LV.Interval) * SelectDQO$LV & xis <= (1 + LV.Interval) * SelectDQO$LV, .N, by = SNi]
+    # adding indexes of selected data
+    filtered.rows <-  Mat[xis >= (1 - LV.Interval) * SelectDQO$LV & xis <= (1 + LV.Interval) * SelectDQO$LV, which = TRUE]
+    data.table::set(Lengths, j = "N.LV", value = split(filtered.rows, Mat$SNi[filtered.rows]))
+    
+  } else {
+    
+    # Per site and per SNi
+    Lengths <- Mat[xis >= (1 - LV.Interval) * SelectDQO$LV & xis <= (1 + LV.Interval) * SelectDQO$LV, .N, by = .(SNi,Campaign)]
+    
+    # Checking missing combination of campaign/SNi
+    unique.Campaigns     <- unique(Mat$Campaign)
+    unique.SNi           <- unique(Mat$SNi)
+    all.combinations     <- expand.grid(SNi = unique.SNi, Campaign = unique.Campaigns)
+    missing_combinations <- as.data.table(dplyr::anti_join(all.combinations, as_tibble(Lengths)))
+    missing_combinations[, pasted := paste0(SNi, "-", Campaign)]
+    
+    if(nrow(missing_combinations) > 0){
+      my_message <- paste0("[GDE_App,Uncertainy] WARNING, Analyser:", paste(missing_combinations$pasted, collapse = ", ")," has/have no data between ± ", LV.Interval*100, " % of LV. 
+                           The selection of data of these SNi/Campaigns is going to be extended to try to reach the minimum data criterium")
+      shinyalert::shinyalert(title = "WARNING missing data at LV",
+                             text = my_message,
+                             closeOnEsc = TRUE,
+                             closeOnClickOutside = TRUE,
+                             html = FALSE,
+                             type = "warning",
+                             showConfirmButton = TRUE,
+                             showCancelButton  = FALSE,
+                             confirmButtonText = "OK",
+                             confirmButtonCol  = "#AEDEF4",
+                             timer             = 20000,
+                             imageUrl          = "",
+                             animation         = FALSE)
+    }
+    
+    # Index per SNi and Campaign
+    data.table::set(Lengths, j = "N.LV", value = apply(Lengths, MARGIN = 1, function(Row){
+      Mat[xis >= (1 - LV.Interval) * SelectDQO$LV & xis <= (1 + LV.Interval) * SelectDQO$LV & SNi == Row[["SNi"]] & Campaign == Row[["Campaign"]], which = T]}))
+    
+    # # adding indexes of selected data
+    # filtered.rows <-  Mat[xis >= (1 - LV.Interval) * SelectDQO$LV & xis <= (1 + LV.Interval) * SelectDQO$LV, which = TRUE]
+    # data.table::set(Lengths, j = "N.LV", value = split(filtered.rows, Mat$SNi[filtered.rows]))
+    
+    # Adding the missing combinations to Lengths
+    missing_combinations[, N := rep(0, nrow(missing_combinations))]
+    Lengths <- data.table::rbindlist(list(Lengths, missing_combinations[,.SD,.SDcols = c("SNi", "Campaign", "N")]), use.names = TRUE, fill=TRUE)
+  }
+  
+  # any analyser with N < min.N?
+  i.Low.N <- Lengths[N < min.N, which = T]
+  Lengths[, LV.Interval.Row := rep(LV.Interval, nrow(Lengths))]
+  if(length(i.Low.N) > 0){
+    Lengths[, pasted := paste0(SNi, "-", Campaign)]
+    my_message <- paste0("[GDE_App,Uncertainy] WARN, ", paste(Lengths$pasted[i.Low.N], collapse = ", ")," not enough data between ± ", LV.Interval*100, " % of LV (", paste(Lengths$N[i.Low.N], collapse = ", "),
+                         " available while ", min.N," needed). Selection is going to be extended or change \"min.N per site for U at LV\".")
+    shinyalert::shinyalert(title = "WARNING missing data at LV",
                            text = my_message,
                            closeOnEsc = TRUE,
                            closeOnClickOutside = TRUE,
                            html = FALSE,
-                           type = "error",
+                           type = "warning",
                            showConfirmButton = TRUE,
                            showCancelButton  = FALSE,
                            confirmButtonText = "OK",
                            confirmButtonCol  = "#AEDEF4",
-                           timer             = 5000,
+                           timer             = 20000,
                            imageUrl          = "",
                            animation         = FALSE)
-    return()
+    
+    # Extending data selection, initializing LV.Interval.Row
+    Lengths[, LV.Interval.Row := rep(LV.Interval, nrow(Lengths))]
+    while (length(i.Low.N) > 0 && any(Lengths$N[i.Low.N] < min.N)) {
+      for(Row in i.Low.N) {
+        if(Lengths[Row]$LV.Interval.Row < 1){
+          
+          # Selecting more data
+          data.table::set(Lengths, i = Row, j = "LV.Interval.Row", value = Lengths[Row]$LV.Interval.Row + 0.05)
+          if(All.Campaigns){
+            Lengths[Row, N.LV  := list(Mat[xis >= (1 - Lengths[Row]$LV.Interval.Row) * SelectDQO$LV & xis <= (1 + Lengths[Row]$LV.Interval.Row) * SelectDQO$LV & SNi == Lengths$SNi[Row], which = T])]
+          } else {
+            Lengths[Row, N.LV  := list(Mat[xis >= (1 - Lengths[Row]$LV.Interval.Row) * SelectDQO$LV & xis <= (1 + Lengths[Row]$LV.Interval.Row) * SelectDQO$LV & SNi == Lengths$SNi[Row] & Campaign == Lengths$Campaign[Row], which = T])]
+          }
+          Lengths[Row, N     := length(Lengths[Row][["N.LV"]][[1]])]
+          
+        } else {
+          
+          # Not enough data can be selected, drop this SNi/Campaign
+          my_message <- paste0("[GDE_App,Uncertainy] ERROR, Analyser:", paste(Lengths$SNi[i.Low.N], collapse = ", ")," missing data between ± ", Lengths[Row]$LV.Interval.Row*100, " % of LV (", paste(Lengths$N[i.Low.N], collapse = ", "),
+                               " available and ", min.N," needed). Impossible to extend further the selection of data. Data are not considered unless you \"min.N per site for U at LV\".")
+          shinyalert::shinyalert(title = "ERROR missing data at LV",
+                                 text = my_message,
+                                 closeOnEsc = TRUE,
+                                 closeOnClickOutside = TRUE,
+                                 html = FALSE,
+                                 type = "error",
+                                 showConfirmButton = TRUE,
+                                 showCancelButton  = FALSE,
+                                 confirmButtonText = "OK",
+                                 confirmButtonCol  = "#AEDEF4",
+                                 timer             = 20000,
+                                 imageUrl          = "",
+                                 animation         = FALSE)
+          # Discarding this row
+          Lengths <- Lengths[-Row]
+        }
+      }
+      i.Low.N <- Lengths[N < min.N, which = T]
+    }
   }
-  CM_Corrected$U_orth_DF$Mat[N.LV, U.95th   := quantile(abs(yis - xis), probs = 0.95, na.rm = T), by=.(Campaign, SN)]
-  CM_Corrected$U_orth_DF$Mat[N.LV, U.MBE_SD := 2 * sqrt(var(yis - xis, na.rm = T) + abs(mean(yis - xis, na.rm = T))^2), by=.(Campaign, SN)]
-  #CM_Corrected$U_orth_DF$Mat[N.LV, MBE := mean(abs(yis - xis), na.rm = T), by=.(Campaign, SN)]
-  #CM_Corrected$U_orth_DF$Mat[N.LV, SD := sd(yis - xis, na.rm = T), by=.(Campaign, SN)]
+  
+  # Message which SNi-Campaign are considered
+  if(All.Campaigns){
+    my_message <- paste0("[GDE_App,Uncertainy] INFO, Analyser: ", paste(Lengths$SNi, collapse = ", "),", enough data between ± ", paste(paste0(Lengths$LV.Interval.Row*100,"%"), collapse = ", "), " of LV  (", paste(Lengths$N, collapse = ", "),
+                         " available and ", min.N," needed).")
+  } else {
+    Lengths[, pasted := paste0(SNi, "-", Campaign)]
+    my_message <- paste0("[GDE_App,Uncertainy] INFO, Analyser: ", paste(Lengths$pasted, collapse = ", "),", enough data between ± ", paste(paste0(Lengths$LV.Interval.Row*100,"%"), collapse = ", "), " of LV (", paste(Lengths$N, collapse = ", "),
+                         " available and ", min.N," needed).")
+  }
+  shinyalert::shinyalert(title = "INFO enough data at LV",
+                         text = my_message,
+                         closeOnEsc = TRUE,
+                         closeOnClickOutside = TRUE,
+                         html = FALSE,
+                         type = "info",
+                         showConfirmButton = TRUE,
+                         showCancelButton  = FALSE,
+                         confirmButtonText = "OK",
+                         confirmButtonCol  = "#AEDEF4",
+                         timer             = 5000,
+                         imageUrl          = "",
+                         animation         = FALSE)
+  
+  # Computing uncertainty
+  for(Row in seq_along(Lengths$SNi)){
+    
+    # Data indexes for this Row of Lengths
+    N.LV <- Lengths[Row]$N.LV[[1]]
+    
+    # U 95th and MBE ± SD added to Mat for plotting
+    Mat[N.LV, U.95th   := quantile(abs(yis - xis), probs = 0.95, na.rm = T)]
+    Mat[N.LV, U.MBE_SD := 2 * sqrt(var(yis - xis, na.rm = T) + abs(mean(yis - xis, na.rm = T))^2)]
+    # U.95th and MBE ± SD added to Lengths for icons value and color
+    data.table::set(Lengths , i = Row, j = "U.95th",   value =  Mat[N.LV]$U.95th[1])
+    data.table::set(Lengths , i = Row, j = "U.MBE_SD", value =  Mat[N.LV]$U.MBE_SD[1])
+    
+    # Computing as in GDE but only per SNI or per SNI and Campaign (i. e.per Row of Lengths)
+    # Computing bias first the linear regression is needed, it shall be computed with all data per SNi if All.Campaign is TRUE and all data per SNi and per Site if All.Campaign is FALSE
+    if(All.Campaigns){
+      assign(paste0("TLS.", Lengths$SNi[Row]),
+           Cal_Line(x = Mat[SNi == Lengths$SNi[Row]]$xis,
+                    y = Mat[SNi == Lengths$SNi[Row]]$yis,
+                    Mod_type = "TLS", Plot_Line = FALSE, Weighted = FALSE, Verbose = Verbose ))
+    } else {
+      assign(paste0("TLS.", Lengths$SNi[Row]),
+             Cal_Line(x = Mat[SNi == Lengths$SNi[Row] & Campaign == Lengths$Campaign[Row]]$xis,
+                      y = Mat[SNi == Lengths$SNi[Row] & Campaign == Lengths$Campaign[Row]]$yis,
+                      Mod_type = "TLS", Plot_Line = FALSE, Weighted = FALSE, Verbose = Verbose ))
+    }
+    # Adding slope and intercept in Lengths for this Row
+    data.table::set(Lengths, i = Row, j = "b0", value = get(paste0("TLS.", Lengths$SNi[Row]))$coefficients[1])
+    data.table::set(Lengths, i = Row, j = "b1", value = get(paste0("TLS.", Lengths$SNi[Row]))$coefficients[2])
+    # Computing fitted value and bais for the selected data
+    data.table::set(Mat, i = N.LV, j = "GDE.fitted", value = Lengths$b0[Row] + Lengths$b1[Row] * Mat[N.LV]$xis)
+    data.table::set(Mat, i = N.LV, j = "GDE.bias",   value = Lengths$b0[Row] + (Lengths$b1[Row] - 1) * Mat[N.LV]$xis)
+    
+    # Computing RSS
+    if(Fitted.RS){
+      
+      # Computing residuals for selected
+      # use existing Fitted.RS in Mat: ES is fitted but using all data
+      #Mat[N.LV, GDE      := 2 * sqrt(var(yis - xis, na.rm = T) + abs(mean(yis - xis, na.rm = T))^2)]
+      browser()
+      # GDE.RS needed?!?
+      
+    } else {
+      
+      #Residuals
+      #data.table::set(Mat, i = N.LV,j = "GDE.RS", value = Mat[N.LV]$residuals^2)
+      # recalculating RS for the selected data SNI or Campaign and SNi
+      data.table::set(Mat, i = N.LV, j = "GDE.RS", value = (Mat[N.LV]$yis - Mat[N.LV]$GDE.fitted)^2)
+      # Adding this RSS and RMSE in Lengths
+      data.table::set(Lengths, i = Row, j = "GDE.RSS",  value = sum(Mat$GDE.RS[N.LV], na.rm = T))
+      data.table::set(Lengths, i = Row, j = "GDE.RMSE", value = sqrt(Lengths$GDE.RSS[Row]/(Lengths$N[Row]-2)))
+      # Updating RSS for xis within ± LV.Interval * LV
+      data.table::set(Mat, i = N.LV, j = "GDE.RS", value = rep(Lengths$GDE.RSS[Row]/(Lengths$N[Row]-2), times = Lengths$N[Row]))
+    }
+    
+    # Adding GDE uncertainty per Row of Lengths
+    # Looking at rows with possible negatives values for RSS/(n-2) - ubsRM in Mat[N.LV]
+    neg.RSS <- Mat[N.LV][GDE.RS - ubsRM^2 < 0, which = TRUE]
+    # Computing Rel.RSS with or without negative values
+    if (length(neg.RSS) > 0) {
+      
+      # Some neg.RSS are negative
+      if (Verbose) futile.logger::flog.warn("[U.by.Model] Some \"RS - ubsRM^2\" are negative and their square roots cannot be calculated.")
+      if (Verbose) futile.logger::flog.info("[U.by.Model] The \"RS - ubsRM^2\" that are negative will be set to 0 when computing uncertainties.")
+      
+      # Computing U.GDE for negative values
+      Mat[N.LV][neg.RSS,  U.GDE := 2 * sqrt(Mat[N.LV]$GDE.bias^2)]
+      
+      # Computing U.GDE for Positive values
+      Positives <- setdiff(N.LV,neg.RSS)
+      if (length(Positives) > 0){
+        data.table::set(Mat[N.LV], i = Positives, j = "U.GDE",
+                        value = 2 * sqrt(Mat[Positives]$GDE.RS - Mat[Positives]$ubsRM^2 + Mat[N.LV]$GDE.bias^2))}
+    }  else {
+      
+      # neg.RSS (RSS/(n-2) - ubsRM) in Mat[N.LV] are ALL POSITIVES
+      if (Verbose) futile.logger::flog.info("[U_orth_DF] All (\"RSS/(nb - 2) or RSi) - ubsRM^2\" are positives. ubsRM makes sence.")
+      data.table::set(Mat, i = N.LV, j = "U.GDE",
+                      value = 2 * sqrt(Mat[N.LV]$GDE.RS - Mat[N.LV]$ubsRM^2 + Mat[N.LV]$GDE.bias^2))
+      # adding U.GDE Lengths for icons value and color
+      data.table::set(Lengths , i = Row, j = "U.GDE",   value = approx(Mat[N.LV]$xis, Mat[N.LV]$U.GDE, xout = SelectDQO$LV)$y)
+    }
+  }
+  
+  # ordering Lengths by camapgin for the icons order of U.95th values
+  
+  if(!All.Campaigns){
+    Lengths <- Lengths[order(as.character(Lengths$Campaign))]
+  }
   
   # plotting without GUM estimation of uncertainty
-  GGPLOT <- ggplot(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis)) + 
+  GGPLOT <- ggplot(data = Mat, aes(x = xis)) + 
     geom_point(aes(y = U.95th, color = "U.95th")) + 
     geom_point(aes(y = U.MBE_SD, color = "U.MBE_SD")) + 
-    geom_line(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis, y = U, color = "GDE")) + 
+    geom_line(aes(x = xis, y = U, color = "GDE(all)")) + 
+    geom_point(aes(x = xis, y = U.GDE, color = "GDE(selected)")) + 
     
     geom_vline(xintercept = SelectDQO$LV) + 
+    geom_vline(xintercept = (1 - LV.Interval) * SelectDQO$LV) + 
+    geom_vline(xintercept = (1 + LV.Interval) * SelectDQO$LV) + 
     annotate("text",
-             x = SelectDQO$LV + 0.04 * diff(range(CM_Corrected$U_orth_DF$Mat$x)),
-             y = min(CM_Corrected$U_orth_DF$Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T) + 
-               0.04 * diff(range(CM_Corrected$U_orth_DF$Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T)),
+             x = SelectDQO$LV + 0.04 * diff(range(Mat$x)),
+             y = min(Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T) + 
+               0.04 * diff(range(Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T)),
              label = "LV",
              color = "darkred",
              size = 4) + 
     geom_hline(yintercept = SelectDQO$DQO) + 
     annotate("text",
-             x = 0.04 * diff(range(CM_Corrected$U_orth_DF$Mat$x)),
-             y = SelectDQO$DQO + 0.04 * diff(range(CM_Corrected$U_orth_DF$Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T)),
+             x = 0.04 * diff(range(Mat$x)),
+             y = SelectDQO$DQO + 0.04 * diff(range(Mat[,.SD,.SDcols = c("U.MBE_SD", "U.95th", "U")], na.rm = T)),
              label = "DQO",
              color = "darkred",
              size = 4) + 
-    scale_color_manual(values = c("U.95th" = "red", "U.MBE_SD" = "orange", "GUM" = "blue", "GDE" = "green")) +
+    scale_color_manual(
+      values = c("U.95th" = "red", "U.MBE_SD" = "orange","GDE(selected)" = "violet",  "GDE(all)" = "green", "GUM" = "blue"),
+      breaks = c("U.95th", "U.MBE_SD","GDE(selected)",  "GDE(all)", "GUM")) +   # Order in legend) 
     labs(x = paste0("Mean reference data in ", unit.ref),
-         y = "Expanded uncertianty of measurements in ", unit.ref) +
-    facet_wrap(~ SN + Campaign) +
+         y = paste0("Expanded uncertianty of measurements in ", unit.ref)) +
     theme_minimal()
   
-  # GUM uncertainty
+  # Adding facet according to All.campaigns
+  if(All.Campaigns){
+    GGPLOT <- GGPLOT + 
+      facet_wrap(~ SNi)
+  } else {
+    GGPLOT <- GGPLOT + 
+      facet_wrap(~ SNi  + Campaign)
+  }
+  # Controlling layout
+  GGPLOT <- GGPLOT +
+    labs(color = "U")+
+    theme(
+      # Adjust axis text size (numbers)
+      axis.text = element_text(size = 10),  # Default size is usually 10-12
+      # Adjust axis title size (x and y labels)
+      axis.title = element_text(size = 12, face = "bold"),
+      # Adjust facet strip text size (as before)
+      strip.text = element_text(size = 12, face = "bold"),
+      legend.key.size = unit(1.5, "cm"),  # Adjust legend key (symbol) size
+      legend.text = element_text(size = 12)  # Alternative way to set legend text size
+    )
+  
+  # Adding GUM uncertainty for corrected CM
   if(Model_Type != "Raw"){
     
     browser()
@@ -1969,10 +1788,19 @@ U.by.Model <- function(CM_Corrected, Name.CM, Model_Type, LV.Interval, min.N = 3
     ub1     <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$ub1
     covb0b1 <- CM_Corrected$U_orth_DF$Lin.Reg[Model == Model_Type]$covb0b1
     
-    CM_Corrected$U_orth_DF$Mat[, GUM := 2 * sqrt((-1/b1)^2 * (ub0^2 + RS) + ((CM_Corr - b0)/b1^2)^2 * ub1^2 - 2 * (CM_Corr - b0) / b1^3  * covb0b1)]
+    Mat[, GUM := 2 * sqrt((-1/b1)^2 * (ub0^2 + RS) + ((yis - b0)/b1^2)^2 * ub1^2 - 2 * (CM_Corr - b0) / b1^3  * covb0b1)]
     
-      GGPLOT <- GGPLOT + 
-        geom_line(data = CM_Corrected$U_orth_DF$Mat, aes(x = xis, y = U, color = "GDE"))
+    GGPLOT <- GGPLOT + 
+      geom_line(data = Mat, aes(x = xis, y = U, color = "GDE"))
   }
-  return(GGPLOT)
+  
+  # Formatting Mat for rendering
+  numeric_cols <- names(Mat)[sapply(Mat, is.numeric)]
+  for(Col in numeric_cols){
+    data.table::set(Mat, j = Col, value = round(Mat[[Col]], 2))
+  }
+  
+  # Putting back Mat to to be able to plot with new columns
+  CM_Corrected$U_orth_DF$Mat <- Mat
+  return(list(GGPLOT = GGPLOT, CM_Corrected = CM_Corrected, Lengths = Lengths)) # 
 }
